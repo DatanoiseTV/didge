@@ -255,6 +255,7 @@ function RoomView({ size = 700, posX, posY, setPosX, setPosY,
       /* trail of the actual engine position */
       const tr = trail.current;
       if (tr.length > 1) {
+        ctx.lineCap = 'round';
         for (let i = 1; i < tr.length; i++) {
           const age = (now - tr[i].t) / 2200;
           const a = Math.max(0, 1 - age);
@@ -264,6 +265,7 @@ function RoomView({ size = 700, posX, posY, setPosX, setPosY,
           ctx.lineWidth = 1 + 2.2 * a;
           ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
         }
+        ctx.lineCap = 'butt';
       }
 
       /* the source puck (live engine position) */

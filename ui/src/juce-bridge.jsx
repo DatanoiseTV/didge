@@ -15,8 +15,15 @@
 (function (global) {
   const { useState, useEffect, useCallback } = React;
 
-  /* ---- Browser mock (design/dev mode, no plugin backend) ---- */
-  if (!global.__JUCE__ || !global.__JUCE__.backend) {
+  /* ---- Browser mock (design/dev mode, no plugin backend) ----
+     The JUCE frontend library defines a placeholder window.__JUCE__ when the
+     native side didn't inject one, so its presence proves nothing. The real
+     plugin registers its slider relays in initialisationData — an empty
+     relay list means we're in a plain browser. */
+  const nativeBackend = !!(global.__JUCE__
+                           && global.__JUCE__.initialisationData
+                           && (global.__JUCE__.initialisationData.__juce__sliders || []).length > 0);
+  if (!nativeBackend) {
     const mkEvent = () => {
       const ls = [];
       return { addListener: (f) => ls.push(f), removeListener: () => {}, fire: (...a) => ls.forEach((f) => f(...a)) };
