@@ -224,19 +224,39 @@ rate.
 
 ## Known limitations
 
-- **Vocal shaping is shallower than a real player's.** Measured tract-to-bore
-  impedance ratios in the formant band are around 18:1; this model becomes
-  unstable above roughly 2.5:1, because it applies the tract's characteristic
-  impedance instantaneously at every frequency instead of only at its
-  resonances. Moving the tract's loading entirely into its returning wave is
-  the fix.
-- Lip damping defaults to Q around 3.8. Real human lips measure Q = 0.46 to
-  1.8; the Q around 7 common in the literature is an artificial-lip value.
-- **Material is subtler than the name suggests.** Wall loss strong enough to
-  make wood and metal obviously different also stops the overblown register
-  speaking, so the spread is held to about 14 Hz of spectral centroid and a
-  decibel or so in the upper harmonics. Bore profile is the control to reach
-  for when you want a different instrument.
+- **Lip Q cannot reach the measured human range, and that ceiling is the same
+  one that limits the wall material.** Real human lips measure Q = 0.46 to 1.8;
+  the Q around 7 common in the literature is an artificial-lip value. Measured
+  on this model, an outward-striking valve stops oscillating at a damping ratio
+  of about 0.18, which is Q = 2.8, and no amount of breath recovers it: the
+  drive available to the valve falls as the square of the damping while blowing
+  pressure only helps as its square root. Sweeping the engine's whole pressure
+  range at Q = 1.7 leaves the drone thirty decibels down. The reason is bore
+  loss -- the loop gain has to come from somewhere, and a lossier tube gives
+  the valve less to work with. That is also why wall material is subtler here
+  than the name suggests: loss strong enough to make wood and metal obviously
+  different is loss the overblown register cannot survive. The two are one
+  problem, and the fix for both is a lower-loss bore, which means modelling the
+  wall's square-root-of-frequency boundary-layer loss properly instead of
+  fitting a one-pole to it at a reference frequency. Until then the damping
+  control is held below the edge rather than being allowed to switch the
+  instrument off.
+- **Vocal shaping is deeper than it was, and no longer limited by what this
+  note used to claim.** It said the model became unstable above a tract-to-bore
+  impedance ratio of about 2.5 and was capped there. Measured, that is not so:
+  swept to 18 the output stays finite and its peak does not move, and the cap
+  stops binding at all above 5, because the tract's own impedance never exceeds
+  the bore's by more than about that. The cap now sits at 5, where a vowel
+  change carves the spectrum consistently by 10 to 22 dB across the harmonic
+  series instead of moving some harmonics and lifting others. Measured tract
+  peaks in real players are around 18 times the bore, so there is still headroom
+  to find -- but it is in the tract model, not in a stability limit.
+- **Cane reeds let the tract take the pitch at extreme settings.** With the
+  voice control at maximum and the vowel at either extreme, a single reed stops
+  tracking the keyboard and sits on a tract resonance. That is a real mechanism
+  -- it is how clarinet pitch bending and the altissimo work -- but it arrives
+  here sooner than it should, so reed tract coupling is set low enough to keep
+  it out of reach of the controls.
 
 ## References
 

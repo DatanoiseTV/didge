@@ -60,10 +60,31 @@ namespace
     // (Tarnopolsky 2005; Smith et al. JASA 121, 547) put a didgeridoo tract
     // peak near 12 MPa.s/m^3 against a bore around 0.7, so the tract really
     // does dominate by more than an order of magnitude in the formant band.
+    //
+    // This sat at 2.5 on the belief that the model went unstable above it.
+    // Measured, it does not: swept to 18 the output stays finite and its peak
+    // does not move, and the cap stops binding at all above 5 because the
+    // tract's own impedance never exceeds the bore's by more than about that.
+    // The old value was costing real vocal shaping for nothing -- at 2.5 a
+    // vowel change moved some harmonics and lifted others, where at 5 it
+    // carves the spectrum consistently, 10 to 22 dB across the series, which
+    // is the behaviour the instrument is known for. Raised to where it stops
+    // binding rather than to the measured 18, since beyond that it is inert.
 #ifndef DIDGE_ZLIM
-#define DIDGE_ZLIM 2.5f
+#define DIDGE_ZLIM 5.0f
 #endif
     constexpr float kTractZLimit = DIDGE_ZLIM;
+
+    // Damping ratio for a control position. Cane reeds are damped by the
+    // player's lip far harder than lips damp themselves, and they tolerate it
+    // because an inward-striking valve does not lose its drive the same way --
+    // so only the outward-striking case is held at kMaxLipZeta.
+    inline float damping (float control, const ExciterSpec& s)
+    {
+        const float z = (0.05f + 0.45f * std::max (0.0f, std::min (1.0f, control)))
+                      * s.dampScale;
+        return s.sign > 0.0f ? std::min (kMaxLipZeta, z) : std::min (2.0f, z);
+    }
 
     inline float noteToHz (float note)
     {
@@ -267,7 +288,7 @@ LipLoad DidgeEngine::buildLipLoad (const EngineParams& p) const
     load.stiffness = s.stiffness;
     load.area      = s.area;
     load.width     = s.width;
-    load.zeta = std::min (2.0f, (0.05f + 0.45f * p.lipDamp) * s.dampScale);
+    load.zeta = damping (p.lipDamp, s);
     load.restOpening = s.restBias + s.restScale * p.embouchure;
     load.mouthPressure = std::max (150.0f, kMaxLungPressure * s.pressScale * p.pressure);
     return load;
@@ -463,7 +484,7 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
             dampNow *= 1.0f - a * 0.8f * vn;         // less damping, brighter
     }
     lips.setSpec (spec);
-    lips.setDamping (std::min (2.0f, (0.05f + 0.45f * dampNow) * spec.dampScale));
+    lips.setDamping (damping (dampNow, spec));
     lips.setRestOpening (spec.restBias + spec.restScale * embNow);
 
     // Humanising. Two parts: an offset drawn once per note, so repeats are

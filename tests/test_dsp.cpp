@@ -845,6 +845,55 @@ static void testWaveField()
 }
 
 // ---------------------------------------------------------------------------
+// A control must never be able to switch the instrument off. Lip damping used
+// to: past a damping ratio of about 0.18 an outward-striking valve stops
+// oscillating on this bore, and the top two thirds of the control ran straight
+// past it -- thirty decibels down with the pitch running away. No amount of
+// breath recovers it, because the drive falls as the square of the damping and
+// pressure only helps as its square root. The control is held below that edge
+// now, so every position sounds.
+// ---------------------------------------------------------------------------
+static void testLipDampingAlwaysSpeaks()
+{
+    float loud = 0.0f;
+    for (float d : { 0.0f, 0.2f, 0.4f, 0.6f, 0.8f, 1.0f })
+    {
+        EngineParams p;
+        p.lipDamp = d;
+        p.pressure = 0.75f;
+        p.humanize = 0.0f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        const auto m = hold (e, p, 38, 3.0f);
+        const float rms = rmsOf (m, 2.0f, 3.0f);
+        loud = std::max (loud, rms);
+        CHECK (rms > 0.004f,
+               "lip damping %.2f stopped the instrument speaking: rms %.5f", d, rms);
+
+        const float f0 = estimateF0 (m, noteHz (38), 2.0f, 3.0f);
+        const float cents = 1200.0f * std::log2 (f0 / noteHz (38));
+        CHECK (std::abs (cents) < 40.0f,
+               "lip damping %.2f threw the pitch %.0f cents off", d, cents);
+    }
+
+    // And no position may be a small fraction of the loudest: a control that
+    // technically still sounds but is 20 dB down is the same bug, quieter.
+    for (float d : { 0.4f, 0.7f, 1.0f })
+    {
+        EngineParams p;
+        p.lipDamp = d;
+        p.pressure = 0.75f;
+        p.humanize = 0.0f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        const float rms = rmsOf (hold (e, p, 38, 3.0f), 2.0f, 3.0f);
+        CHECK (rms > 0.25f * loud,
+               "lip damping %.2f is %.1f dB below the loudest setting",
+               d, 20.0f * std::log10 (std::max (1.0e-9f, rms / loud)));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Material must change the timbre: a hard, smooth wall loses less at the top
 // than a soft, rough one, so metal has to come out brighter than wood.
 // ---------------------------------------------------------------------------
@@ -984,6 +1033,7 @@ int main()
     testReedBeatsShut();
     testBoreDiameter();
     testWaveField();
+    testLipDampingAlwaysSpeaks();
     testMaterials();
     testStability();
     testSampleRates();

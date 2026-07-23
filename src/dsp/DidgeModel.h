@@ -183,6 +183,18 @@ struct BoreShape
 #define DIDGE_KREF 420.0f
 #endif
 inline constexpr float kLipStiffness = DIDGE_KREF;  // N/m
+
+// Most damping an outward-striking valve can carry and still oscillate on this
+// bore, measured: at a damping ratio of 0.167 the drone is full strength, and
+// by 0.19 it has collapsed by thirty decibels and the pitch runs away. The
+// drive available to the valve falls as the square of the damping while
+// blowing pressure only helps as its square root, so no amount of breath
+// recovers it -- swept to the engine's maximum it does not come back. The
+// control is therefore held here rather than being allowed to switch the
+// instrument off. See the note on lip Q in the README: this ceiling is set by
+// the bore's losses, and lifting it is the same problem as making the wall
+// material more audible.
+inline constexpr float kMaxLipZeta = 0.160f;
 inline constexpr float kLipArea  = 1.0e-4f;      // m^2, projected lip surface
 inline constexpr float kLipWidth = 1.2e-2f;      // m, slit width
 
@@ -301,7 +313,7 @@ inline const ExciterSpec& exciterSpec (Exciter e)
         // which is where real clarinets stop speaking. Reeds want more breath
         // than lips do, hence the pressure scale.
         { -1.0f, 1120.0f, 1.4e-4f, 1.3e-2f, 3.0f,
-           1.3e-3f,  0.25e-3f, 2200.0f, 0.0f, false, 1.90f,  3.6f, 54.0f, false, 0.30f },
+           1.3e-3f,  0.25e-3f, 2200.0f, 0.0f, false, 1.90f,  3.6f, 54.0f, false, 0.15f },
 
         // Double reed, oboe/bassoon. Two blades beating against each other:
         // stiffer, much narrower, and damped hard enough by the lips that the
@@ -309,7 +321,7 @@ inline const ExciterSpec& exciterSpec (Exciter e)
         // most of why a double reed is so much brighter than a single one, and
         // it is the hardest of these to blow, as it is in life.
         { -1.0f, 1800.0f, 1.1e-4f, 1.0e-2f, 5.0f,
-           0.9e-3f,  0.18e-3f, 2400.0f, 0.0f, false, 2.40f, 12.5f, 46.0f, false, 0.20f },
+           0.9e-3f,  0.18e-3f, 2400.0f, 0.0f, false, 2.40f, 12.5f, 46.0f, false, 0.10f },
 
         // Free reed, harmonica/accordion/khaen. A thin metal tongue that
         // nothing damps but the air, so its Q runs into the tens rather than
@@ -319,7 +331,7 @@ inline const ExciterSpec& exciterSpec (Exciter e)
         // range, which is what a real reed tongue weighs, and it speaks on a
         // fraction of the breath the cane reeds need.
         { -1.0f, 65.0f, 0.25e-4f, 5.0e-3f, 0.16f,
-           0.7e-3f,  0.20e-3f,  0.0f, 1.02f, false, 0.50f, 12.0f, 87.0f, true,  0.45f },
+           0.7e-3f,  0.20e-3f,  0.0f, 1.02f, false, 0.50f, 12.0f, 87.0f, true,  0.22f },
 
         // Air jet, flute/recorder/panpipe. No valve at all: see JetDrive.
         {  0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
