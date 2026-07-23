@@ -29,8 +29,11 @@ All notable changes to Didge are documented here. The format follows
   during the closed phase. Calibrated by measured harmonic-to-noise ratio to
   about +23 dB at the default breath setting.
 - Self-calibrating tuning: a linearised lip-plus-bore solver places the bore,
-  then a servo measures the sounding period and trims bore length per frequency
-  band until the note is in tune. Settles within a couple of cents.
+  then a learner measures the sounding period and corrects a length trim per
+  frequency band. The correction is taken once per note, after it settles, and
+  applied at the next note-on rather than to the note being played, so a note
+  holds one pitch throughout. Within a few cents on a first note, inside two
+  thereafter.
 - Overblowing: a second, much higher held note selects the toot register and
   firms the embouchure automatically.
 - MIDI: note on/off, pitch bend, CC2/CC11 breath and expression on the blowing

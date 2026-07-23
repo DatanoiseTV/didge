@@ -88,35 +88,59 @@ struct NoteEvent
 // on bore shape and blowing pressure, so no fixed correction curve covers it.
 //
 // Instead the engine measures its own sounding period from the lip oscillator
-// and integrates a length trim until the note is in tune, caching the result
-// per frequency band. The first note in a band slides in over a few hundred
-// milliseconds; every later note in that band starts in tune.
+// and corrects a length trim, caching the result per frequency band.
+//
+// The correction is taken ONCE per note and applied at the next note-on, never
+// to the note being played. Steering a sounding note is heard as portamento --
+// it slid up to fifty cents into place over a second or two. It also has to be
+// one-shot rather than a running integrator: with the correction withheld from
+// the current note, an integrator sees an error it is not allowed to fix and
+// winds up into its clamp.
 // ---------------------------------------------------------------------------
 class PitchTrim
 {
 public:
-    static constexpr int   kBands     = 12;
+    static constexpr int   kBands     = 32;
     static constexpr float kLoHz      = 30.0f;
     static constexpr float kHiHz      = 320.0f;
-    static constexpr float kPrior     = 1.0f / 1.05f;  // model runs ~85 cents sharp
+    // Starting point before anything has been learned, measured on the default
+    // bore. Not a guess at the physics: the frequency-dependent wall loss
+    // added later shifted it, and it was re-measured then. It drifts about
+    // four cents per octave, which is worth following -- a flat prior leaves
+    // the top of the range a good fourteen cents out on a first note.
+    static constexpr float kPriorAt49 = 0.9730f;
+    static constexpr float kPriorCentsPerOct = 4.0f;
+    static float priorFor (float hz)
+    {
+        return kPriorAt49 * std::pow (2.0f, kPriorCentsPerOct
+                                            * std::log2 (std::max (20.0f, hz) / 49.0f) / 1200.0f);
+    }
     static constexpr float kWindowSec = 0.20f;
 
     void prepare (double sampleRate);
     void resetLearning();
 
-    // Trim to tune with, for a target frequency.
+    // Trim to tune with, for a target frequency. Interpolated between the
+    // stored bands: the correction varies smoothly with pitch, and reading a
+    // piecewise-constant table means every note in a band inherits whatever
+    // its neighbour needed and the servo then has to walk it back.
     float forFrequency (float hz) const;
 
     // Feed one sample of the lip oscillator; call every sample while sounding.
     // `stable` gates learning (no attack transient, no bend, no growl).
     void observe (float lipOpening, float targetHz, bool stable);
 
-    void noteChanged() { reset(); }
+    // Re-arm on each note-on: one measurement, one correction, then hold.
+    void noteChanged() { reset(); armedToLearn = true; stableWindows = 0; }
+    bool hasLearned() const { return ! armedToLearn; }
     float lastMeasuredHz() const { return measuredHz; }
 
 private:
     void reset();
-    static int bandFor (float hz);
+    // Where a frequency sits in the table: lower band index and the fraction
+    // toward the next. Read and write must use the same split, or the servo
+    // corrects a band by more than it reads back and walks into its clamp.
+    static void bandSplit (float hz, int& idx, float& frac);
 
     float fs = 48000.0f;
     float trim[kBands];
@@ -129,6 +153,9 @@ private:
     double sampleIdx = 0.0;
     int    windowLeft = 0;
     float  measuredHz = 0.0f;
+    bool   armedToLearn = true;
+    int    stableWindows = 0;
+    static constexpr int kSettleWindows = 5;   // ~1 s at kWindowSec
 };
 
 // The instrument: lungs -> vocal tract -> lip valve -> bore -> bell,
@@ -158,6 +185,9 @@ public:
     float tootFrequency()  const { return bore.tootFrequency(); }
     float measuredFrequency() const { return pitchTrim.lastMeasuredHz(); }
     bool  anyNoteHeld()    const { return numHeld > 0; }
+
+    // Offline/test hook: the trim the learner currently holds for a pitch.
+    float pitchTrimFor (float hz) const { return pitchTrim.forFrequency (hz); }
 
     // Offline/test hook: relearn the pitch trim from scratch.
     void resetPitchLearning() { pitchTrim.resetLearning(); }
@@ -243,6 +273,7 @@ private:
     float tunedTrim = 0.0f;
     BoreShape tunedShape;
     bool  everTuned = false;
+    bool  needsRetune = true;
 
     // Noise state
     std::uint32_t rng = 0x1234567u;

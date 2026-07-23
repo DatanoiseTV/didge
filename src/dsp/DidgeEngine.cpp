@@ -82,7 +82,11 @@ void PitchTrim::prepare (double sampleRate)
 
 void PitchTrim::resetLearning()
 {
-    for (auto& t : trim) t = kPrior;
+    for (int i = 0; i < kBands; ++i)
+    {
+        const float t = (static_cast<float> (i) + 0.5f) / kBands;
+        trim[i] = priorFor (kLoHz * std::pow (kHiHz / kLoHz, t));
+    }
     reset();
 }
 
@@ -98,16 +102,19 @@ void PitchTrim::reset()
     measuredHz = 0.0f;
 }
 
-int PitchTrim::bandFor (float hz)
+void PitchTrim::bandSplit (float hz, int& idx, float& frac)
 {
     const float t = std::log (std::max (kLoHz, std::min (kHiHz, hz)) / kLoHz)
-                  / std::log (kHiHz / kLoHz);
-    return std::max (0, std::min (kBands - 1, static_cast<int> (t * kBands)));
+                  / std::log (kHiHz / kLoHz) * kBands - 0.5f;
+    idx = std::max (0, std::min (kBands - 2, static_cast<int> (std::floor (t))));
+    frac = std::max (0.0f, std::min (1.0f, t - static_cast<float> (idx)));
 }
 
 float PitchTrim::forFrequency (float hz) const
 {
-    return trim[bandFor (hz)];
+    int i; float f;
+    bandSplit (hz, i, f);
+    return trim[i] + (trim[i + 1] - trim[i]) * f;
 }
 
 void PitchTrim::observe (float lipOpening, float targetHz, bool stable)
@@ -155,17 +162,33 @@ void PitchTrim::observe (float lipOpening, float targetHz, bool stable)
         // ~1.2x sharp, so this window still admits every real correction while
         // rejecting octave errors — a faint period-doubling in the lip motion
         // would otherwise read as f/2 and drive the trim to double the bore.
-        if (stable && targetHz > 1.0f && measuredHz > 0.78f * targetHz
-                                      && measuredHz < 1.30f * targetHz)
+        const bool usable = stable && targetHz > 1.0f
+                          && measuredHz > 0.78f * targetHz
+                          && measuredHz < 1.30f * targetHz;
+
+        // Let the note settle before taking the one measurement it gets. A
+        // note is transiently sharp for the first few hundred milliseconds
+        // while the bore and the lip glide into place; measuring there gives
+        // an error of the wrong sign, and the single correction then walks the
+        // tuning steadily further out with every note played.
+        if (usable) ++stableWindows; else stableWindows = 0;
+
+        if (armedToLearn && usable && stableWindows >= kSettleWindows)
         {
-            // Bore length scales as 1/frequency, so a multiplicative trim
-            // update converges geometrically. Taking a third of the error per
-            // window settles well inside a note without ringing on the
-            // measurement noise.
-            const int   b2 = bandFor (targetHz);
+            // One full correction, not a fraction of one. The measurement is
+            // good to about a cent, and there is only this one chance before
+            // the trim is held until the next note.
+            armedToLearn = false;
+            int i; float f;
+            bandSplit (targetHz, i, f);
             const float err = targetHz / measuredHz;
-            const float t2 = trim[b2] * std::pow (err, 0.34f);
-            trim[b2] = std::max (0.75f, std::min (1.15f, t2));
+            // Spread the correction across the same two bands the reader
+            // blends, in the same proportion.
+            const float step = err;
+            const float lo = std::pow (step, 1.0f - f);
+            const float hi = std::pow (step, f);
+            trim[i]     = std::max (0.75f, std::min (1.15f, trim[i] * lo));
+            trim[i + 1] = std::max (0.75f, std::min (1.15f, trim[i + 1] * hi));
         }
     }
     firstCross = lastCross = -1.0;
@@ -247,6 +270,9 @@ void DidgeEngine::handleEvent (const NoteEvent& e)
                 inDecay = false;                           // retrigger the envelope
             }
             gate = true;
+            // Re-arm the learner and re-latch whatever it knows now.
+            pitchTrim.noteChanged();
+            needsRetune = true;
             break;
         }
         case NoteEvent::noteOff:
@@ -291,7 +317,10 @@ void DidgeEngine::refreshRegister()
     tootNote = (hi != lo && noteToHz (static_cast<float> (hi))
                           / noteToHz (static_cast<float> (lo)) >= 1.45f) ? hi : -1;
     if (droneNote != prevDrone)
+    {
         pitchTrim.noteChanged();
+        needsRetune = true;
+    }
 }
 
 void DidgeEngine::retune (const EngineParams& p, bool force)
@@ -300,9 +329,17 @@ void DidgeEngine::retune (const EngineParams& p, bool force)
     const float trimNow = pitchTrim.forFrequency (target);
 
     const bool shapeChanged = ! everTuned || tunedShape.differsFrom (p.shape);
-    const bool noteChanged  = ! everTuned || std::abs (target - tunedTargetHz) > tunedTargetHz * 0.0008f;
-    const bool trimChanged  = std::abs (trimNow - tunedTrim) > 1.0e-4f;
-    if (! force && ! shapeChanged && ! noteChanged && ! trimChanged)
+    const bool noteChanged  = ! everTuned || needsRetune
+                            || std::abs (target - tunedTargetHz) > tunedTargetHz * 0.0008f;
+    needsRetune = false;
+
+    // The learned trim is latched here and NOT re-applied while a note holds.
+    // It used to be, and that is heard as portamento: the servo walks out its
+    // error over a second or two, so every note slid up to about fifty cents
+    // into place instead of simply being in tune. Learning still runs
+    // throughout -- it just lands on the next note-on rather than sliding the
+    // one being played.
+    if (! force && ! shapeChanged && ! noteChanged)
         return;
 
     if (shapeChanged)

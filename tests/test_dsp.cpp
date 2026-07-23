@@ -86,6 +86,22 @@ static float estimateF0 (const std::vector<float>& x, float hint, float from, fl
         const double e = score (f);
         if (e > bestE) { bestE = e; bestF = f; }
     }
+
+    // Step down an octave only when a partial genuinely stands at f/2. A
+    // harmonic sum cannot settle this on its own -- every harmonic of f is
+    // also a harmonic of f/2, so the sum always looks comparable -- and in
+    // this instrument the second partial often stands above the first, which
+    // pulls the estimate an octave high. Asking whether there is actually
+    // energy at the lower frequency is the question that decides it.
+    for (int i = 0; i < 2; ++i)
+    {
+        const float halfF = bestF * 0.5f;
+        if (halfF < hint * 0.45f) break;
+        if (goertzelDb (x, halfF, from, to) > goertzelDb (x, bestF, from, to) - 12.0f)
+            bestF = halfF;
+        else
+            break;
+    }
     return bestF;
 }
 

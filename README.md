@@ -95,14 +95,18 @@ and longer-ringing. **Decay**, off by default, lets the breath run out under a
 held note for short struck sounds.
 
 The instrument tunes itself. The linearised solver places the bore so the
-threshold oscillation lands on the requested note, then a servo measures the
-sounding period from the lip oscillator and trims the bore length until the
-note is exactly in tune, caching the correction per frequency band. The first
-note in a band slides in over a few hundred milliseconds; every later note in
-that band starts in tune. This is necessary because a didgeridoo is driven far
-past threshold, and how sharp it plays depends almost entirely on bore shape
-and blowing pressure — from about 10 to 180 cents on this model, which no fixed
+threshold oscillation lands on the requested note; a learner then measures the
+sounding period from the lip oscillator and corrects a length trim, cached per
+frequency band. This is necessary because a didgeridoo is driven far past
+threshold, and how sharp it plays depends almost entirely on bore shape and
+blowing pressure — from about 10 to 180 cents on this model, which no fixed
 correction curve covers.
+
+The correction is taken **once per note, after the note has settled, and
+applied at the next note-on** — never to the note being played. Steering a
+sounding note is heard as portamento. A note therefore holds one pitch for its
+whole length; on the default bore the first note of a session lands within a
+few cents and later ones inside two.
 
 The strip along the bottom of the instrument panel is a live analyser: an FFT
 sized for roughly 12 Hz per bin, drawn over 256 log-spaced display points from
