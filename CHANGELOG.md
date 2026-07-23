@@ -1,30 +1,45 @@
 # Changelog
 
-All notable changes to Qube are documented here. The format follows
+All notable changes to Didge are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions follow
 [semver](https://semver.org/) (pre-1.0: minor bumps may break).
 
-## [0.1.0] — 2026-07-22
+## [0.1.0] — 2026-07-23
 
 ### Added
 
-- Quadraphonic panning engine: equal-power pairwise (2D VBAP) law with exact
-  power preservation, MDAP-style source spread, and interior panning through
-  the room centre.
-- Motion engine: Orbit, Figure-8, Pendulum, Bounce, seeded Random walk;
-  free-running 0.02–8 Hz or tempo-synced (8 bars…1/16 incl. triplets) with
-  transport-locked phase, phase offset and reverse.
-- Distance model: attenuation, air absorption (transparent at zero distance),
-  doppler via slewed fractional delay (3-sample interpolation guard).
-- Room reverb: 8-line Householder FDN rendering four decorrelated outputs
-  directly into the speaker bed.
-- Stereo monitoring of the quad field: spherical-head binaural rendering
-  (Woodworth ITD, Brown-Duda shadow shelves, darkened rears), first-order
-  ambisonic UHJ stereo encode (90° ± 1° quadrature network, verified
-  200 Hz–20 kHz), and an equal-power stereo fold-down. Auto mode resolves
-  against the bus width.
-- WebView UI: draggable top-down room fed by the engine's actual post-motion
-  position, motion trails, path previews, level-reactive speakers, spread
-  wedge, per-speaker + output metering, preset browser.
+- Physical model of a didgeridoo: lungs, vocal tract, lip valve, waveguide
+  bore, bell radiation. No samples and no oscillator.
+- Bore: 16-segment Kelly-Lochbaum waveguide over a shapeable radius profile
+  (bell, flare, wall texture, wall damping) with a deterministic seeded wall
+  irregularity, and power-complementary bell radiation whose corner tracks the
+  bell radius.
+- Lip valve: one-mass outward-striking exciter after Silva / Menguy-Gilbert,
+  integrated with the Newmark scheme (beta 1/4, eta 1/2) plus a fixed point on
+  the pressure across the lips. Bernoulli slit flow is solved in closed form
+  against tract and bore impedances in series, so the lips beat shut for part
+  of every cycle.
+- Vocal tract: 8-section waveguide, morphable vowel area functions, and an
+  allpass glottis that is open to the lungs at low frequency and reflective at
+  formant frequencies.
+- Nonlinear wave propagation: amplitude-dependent segment delay, bounded to
+  stay stable, so the timbre brightens with blowing pressure.
+- Turbulence as a fluctuating pressure jump proportional to the Bernoulli drop
+  across the lips (Hirschberg & Verge), gated by the lip opening so it stops
+  during the closed phase. Calibrated by measured harmonic-to-noise ratio to
+  about +23 dB at the default breath setting.
+- Self-calibrating tuning: a linearised lip-plus-bore solver places the bore,
+  then a servo measures the sounding period and trims bore length per frequency
+  band until the note is in tune. Settles within a couple of cents.
+- Overblowing: a second, much higher held note selects the toot register and
+  firms the embouchure automatically.
+- MIDI: note on/off, pitch bend on the lips, CC2/CC11 breath and expression on
+  the blowing pressure.
+- WebView UI with a live cutaway of the instrument driven by the engine's own
+  bore profile and vocal tract, plus breath, embouchure, voice, instrument and
+  space panels.
 - Ten factory presets, XML user presets.
+- Acoustic test suite that renders audio and measures pitch, spectrum, vowel
+  response, growl sidebands, overblowing, silence, numerical stability and
+  sample-rate independence.
 - Formats: VST3, AU, CLAP, Standalone (macOS/Linux/Windows CI).
