@@ -136,14 +136,23 @@ struct BoreShape
     float flare   = 0.5f;   // 0..1 -> flare exponent (1 = cone, higher = late bell)
     float texture = 0.3f;   // 0..1 -> wall irregularity depth
     float wallDamp = 0.3f;  // 0..1 -> wall losses (hard wood .. soft/leaky)
+    float diameter = 0.5f;  // 0..1 -> overall bore width, 0.5x .. 2x
     int   profile  = 0;     // BoreProfile
     int   material = 0;     // BoreMaterial
+
+    // Width scale. Exponential, so the control is symmetric in ratio and the
+    // centre is the instrument the rest of the model was calibrated on.
+    float widthScale() const
+    {
+        return std::pow (2.0f, 2.0f * (std::max (0.0f, std::min (1.0f, diameter)) - 0.5f));
+    }
 
     bool differsFrom (const BoreShape& o) const
     {
         auto d = [] (float a, float b) { return std::abs (a - b) > 1.0e-6f; };
         return d (bell, o.bell) || d (flare, o.flare)
             || d (texture, o.texture) || d (wallDamp, o.wallDamp)
+            || d (diameter, o.diameter)
             || profile != o.profile || material != o.material;
     }
 };
@@ -177,11 +186,160 @@ inline constexpr float kLipStiffness = DIDGE_KREF;  // N/m
 inline constexpr float kLipArea  = 1.0e-4f;      // m^2, projected lip surface
 inline constexpr float kLipWidth = 1.2e-2f;      // m, slit width
 
-// Effective mass for a lip resonance, from the fixed stiffness.
-inline float lipMassFor (float hz)
+// Effective mass for a valve resonance, from its stiffness.
+inline float valveMassFor (float hz, float stiffness)
 {
     const float w = 6.2831853f * std::max (8.0f, hz);
-    return kLipStiffness / (w * w);
+    return stiffness / (w * w);
+}
+inline float lipMassFor (float hz) { return valveMassFor (hz, kLipStiffness); }
+
+// ---------------------------------------------------------------------------
+// Excitation type.
+//
+// Every wind instrument is a resonator plus a device that turns steady breath
+// into an oscillation, and there are only a few ways to build that device.
+// The one that matters most is the direction the pressure across the valve
+// pushes it, because it decides which side of a bore resonance the instrument
+// sounds on:
+//
+//   Outward-striking (blown open, sign +1). Mouth pressure forces the valve
+//   further open, so it opens when the bore pressure falls. Re(Y) goes
+//   negative only ABOVE the valve's mechanical resonance, and the instrument
+//   sounds slightly above the bore's impedance peak. Lips do this. The player
+//   chooses the note by setting the lip resonance near it, which is why brass
+//   players can play a whole harmonic series on one tube.
+//
+//   Inward-striking (blown closed, sign -1). Mouth pressure forces the valve
+//   shut, and past a threshold it stays shut -- the beating pressure. It
+//   sounds BELOW its own resonance, and because a cane reed resonates far
+//   above any note it plays, the bore alone decides the pitch. That is why a
+//   clarinettist does not choose the register with their embouchure the way a
+//   trumpeter does.
+//
+// The free reed is the odd one out: it swings through its slot rather than
+// against a seat, is barely damped, and its own resonance is so sharp that it
+// sets the pitch and the pipe merely reinforces it. An accordion reed sounds
+// at very nearly the same frequency with or without a pipe attached.
+//
+// The air jet is not a valve at all. See JetDrive.
+//
+// How strongly the player's vocal tract loads the exciter also depends on the
+// type, and by a lot. A didgeridoo or brass embouchure is a wide, low-impedance
+// aperture opening straight into the mouth, which is why Tarnopolsky et al.
+// could measure the tract dominating the bore by more than an order of
+// magnitude. A cane reed sits in a mouthpiece behind a slit a fraction of a
+// millimetre high; Chen, Smith & Wolfe (JASA 126, 1511, 2009) found clarinet
+// players need a tract impedance exceeding the bore's to bend a note or reach
+// the altissimo, and that only advanced players manage it. Given a reed's
+// nearly frequency-flat negative resistance, leaving the coupling at the
+// didgeridoo value lets the tract seize the pitch outright: measured here, a
+// single reed above D3 stopped tracking the keyboard and sat on a tract
+// resonance instead, the same three frequencies for every note asked for.
+//
+// Sources for the numbers below: Fletcher & Rossing, The Physics of Musical
+// Instruments, ch. 13-15 (valve classification, reed and lip parameters);
+// Dalmont, Gilbert & Ollivier, JASA 118, 3294 (2005) for single-reed beating
+// pressures around 5-8 kPa; Facchinetti, Boutillon & Constantinescu, JASA 114,
+// 3345 (2003) for clarinet reed resonances near 2.2 kHz; St. Hilaire, Wilson &
+// Beavers, JFM 91, 693 (1979) for free-reed behaviour.
+// ---------------------------------------------------------------------------
+enum class Exciter { lips = 0, singleReed, doubleReed, freeReed, airJet };
+inline constexpr int kNumExciters = 5;
+
+struct ExciterSpec
+{
+    float sign;        // +1 blown open (lips), -1 blown closed (cane reeds)
+    float stiffness;   // N/m
+    float area;        // m^2 the pressure difference acts on
+    float width;       // m, slit width the flow passes through
+    float dampScale;   // multiplies the player's damping control
+    float restScale;   // maps the player's aperture control to metres
+    float restBias;    // m, aperture at the bottom of that control
+    float absHz;       // >0: resonance fixed here, whatever the note
+    float ratio;       // else: resonance as a fraction of the sounding pitch
+    bool  jet;         // non-reed: a jet across an open mouth, no valve at all
+    float pressScale;  // breath control -> mouth pressure, relative to lips
+    float trimDb;      // level trim, so switching type does not jump
+    float trimCents;   // how flat this exciter plays before the learner runs
+    bool  pitchFromValve; // apply that trim to the valve, not to the bore
+    float tractCoupling;  // how strongly the player's mouth loads this exciter
+};
+
+// Beating pressure: the mouth pressure at which an inward-striking valve is
+// forced shut and the instrument stops speaking. Only meaningful for sign < 0.
+inline float beatingPressure (const ExciterSpec& s, float restOpening)
+{
+    return s.sign < 0.0f && s.area > 0.0f ? s.stiffness * restOpening / s.area : 0.0f;
+}
+
+// Oscillation threshold for an inward-striking valve. Setting the quasi-static
+// Re(Y) = -A*By/k + Bp to zero reduces exactly to a third of the beating
+// pressure, independent of every other parameter -- the classical result for a
+// reed on a lossless resonator (Dalmont, Gilbert & Ollivier). Losses push the
+// real threshold a little higher. It is worth stating here because it is the
+// one number that decides whether a reed setting is playable: below it the
+// instrument is silent, above the beating pressure it is choked.
+inline float reedThresholdPressure (const ExciterSpec& s, float restOpening)
+{
+    return beatingPressure (s, restOpening) / 3.0f;
+}
+
+inline const ExciterSpec& exciterSpec (Exciter e)
+{
+    static const ExciterSpec table[kNumExciters] = {
+        // Lips. The reference embouchure this model was built and tuned on.
+        // sign   k              area      width      damp
+        { +1.0f, kLipStiffness, kLipArea, kLipWidth, 1.0f,
+        // restScale restBias  absHz  ratio  jet   press  trim
+           1.8e-3f, -0.6e-3f,  0.0f,  0.90f, false, 1.00f,  0.0f,   0.0f, false, 1.00f },
+
+        // Single cane reed, clarinet/saxophone. Effective stiffness per unit
+        // area is about 8 MPa/m over roughly 1.4 cm^2, giving k = 1120 N/m and,
+        // at its 2.2 kHz resonance, an effective mass of six milligrams -- both
+        // in the measured range. A 1 mm tip opening then beats shut near 7 kPa,
+        // which is where real clarinets stop speaking. Reeds want more breath
+        // than lips do, hence the pressure scale.
+        { -1.0f, 1120.0f, 1.4e-4f, 1.3e-2f, 3.0f,
+           1.3e-3f,  0.25e-3f, 2200.0f, 0.0f, false, 1.90f,  3.6f, 54.0f, false, 0.30f },
+
+        // Double reed, oboe/bassoon. Two blades beating against each other:
+        // stiffer, much narrower, and damped hard enough by the lips that the
+        // reed resonance is a broad hump rather than a peak. The narrow slit is
+        // most of why a double reed is so much brighter than a single one, and
+        // it is the hardest of these to blow, as it is in life.
+        { -1.0f, 1800.0f, 1.1e-4f, 1.0e-2f, 5.0f,
+           0.9e-3f,  0.18e-3f, 2400.0f, 0.0f, false, 2.40f, 12.5f, 46.0f, false, 0.20f },
+
+        // Free reed, harmonica/accordion/khaen. A thin metal tongue that
+        // nothing damps but the air, so its Q runs into the tens rather than
+        // single figures. That sharp resonance sets the pitch and the pipe
+        // follows it -- the reverse of every other exciter here. The soft
+        // spring puts the moving mass between 0.02 and 0.7 g over the playing
+        // range, which is what a real reed tongue weighs, and it speaks on a
+        // fraction of the breath the cane reeds need.
+        { -1.0f, 65.0f, 0.25e-4f, 5.0e-3f, 0.16f,
+           0.7e-3f,  0.20e-3f,  0.0f, 1.02f, false, 0.50f, 12.0f, 87.0f, true,  0.45f },
+
+        // Air jet, flute/recorder/panpipe. No valve at all: see JetDrive.
+        {  0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
+           1.0e-3f,  0.0f,      0.0f, 0.0f, true,  0.55f,  3.0f,  0.0f, false, 0.70f },
+    };
+    const int i = static_cast<int> (e);
+    return table[i >= 0 && i < kNumExciters ? i : 0];
+}
+
+inline const char* exciterName (Exciter e)
+{
+    switch (e)
+    {
+        case Exciter::singleReed: return "Single Reed";
+        case Exciter::doubleReed: return "Double Reed";
+        case Exciter::freeReed:   return "Free Reed";
+        case Exciter::airJet:     return "Air Jet";
+        case Exciter::lips:
+        default:                  return "Lips";
+    }
 }
 
 struct LipLoad
@@ -192,28 +350,37 @@ struct LipLoad
     float zeta    = 0.125f;    // damping ratio
     float restOpening = 5.0e-4f;  // m
     float mouthPressure = 2500.0f; // Pa
+    float sign    = +1.0f;     // +1 blown open, -1 blown closed
+    float stiffness = kLipStiffness;
 
     // Steady operating point. The bore passes DC (it is open at the bell), so
-    // the mean pressure drop across the lips is the mouth pressure and the
-    // mean opening is the static spring balance.
+    // the mean pressure drop across the valve is the mouth pressure and the
+    // mean opening is the static spring balance. An inward-striking valve
+    // subtracts instead of adding, so blowing harder closes it, and past the
+    // beating pressure there is no opening left at all.
     float staticOpening() const
     {
-        return std::max (2.0e-5f, restOpening + area * mouthPressure / kLipStiffness);
+        return std::max (2.0e-5f,
+                         restOpening + sign * area * mouthPressure / stiffness);
     }
 
-    // Valve admittance for a candidate lip resonance. Stiffness is fixed, so
-    // the resonance selects the mass — the same mapping the running valve
-    // uses, which is what makes the solver's prediction meaningful.
+    // Valve admittance for a candidate resonance. Stiffness is fixed, so the
+    // resonance selects the mass — the same mapping the running valve uses,
+    // which is what makes the solver's prediction meaningful.
+    //
+    // The striking direction enters exactly once, on the term that couples the
+    // valve's motion back into the flow. That single sign is what moves the
+    // sounding pitch from above the bore resonance to below it.
     std::complex<float> admittance (float omega, float fLipHz) const
     {
-        const float k   = kLipStiffness;
-        const float m   = lipMassFor (fLipHz);
+        const float k   = stiffness;
+        const float m   = valveMassFor (fLipHz, k);
         const float dp0 = std::max (1.0f, mouthPressure);
         const float By  = width * std::sqrt (2.0f * dp0 / kAirDensity);
         const float Bp  = width * staticOpening() / std::sqrt (2.0f * kAirDensity * dp0);
         const float r   = 2.0f * zeta * std::sqrt (m * k);
         const std::complex<float> D (k - m * omega * omega, omega * r);
-        return area * By / D + Bp;
+        return sign * area * By / D + Bp;
     }
 };
 
@@ -261,10 +428,27 @@ public:
     void setShape (const BoreShape& s)
     {
         shape = s;
-        const float rBell = kMouthRadius + (0.080f - 0.018f) * s.bell;
+
+        // Overall width. Scaling every radius together keeps the profile's
+        // shape and changes the size of the instrument. Two real effects pull
+        // against each other here. The characteristic impedance goes as 1/r^2,
+        // so a narrow tube stands a much larger pressure up against the
+        // exciter, drives the wave further into the nonlinear regime and comes
+        // out brighter; while the viscous and thermal boundary layer at the
+        // wall is a fixed thickness whatever the bore, so loss per unit length
+        // goes as 1/r and works the other way.
+        //
+        // Measured across this control, the impedance wins and by a long way:
+        // the spectral centroid runs from about 490 Hz at the narrow end to
+        // 160 Hz at the wide one. That is the right answer -- a narrow-bore
+        // trumpet is the bright, brilliant one and a large-bore instrument the
+        // broad, dark one -- but it is the opposite of what the loss term alone
+        // would suggest, so it is worth stating that it was measured.
+        const float dia = s.widthScale();
+        const float rBell = (kMouthRadius + (0.080f - 0.018f) * s.bell) * dia;
         const auto prof = static_cast<BoreProfile> (s.profile);
         const auto geo = boreGeometryFor (prof, s.flare);
-        const float rThroat = kMouthRadius * geo.mouthMul;
+        const float rThroat = kMouthRadius * geo.mouthMul * dia;
         const float rEnd = std::max (rThroat * 1.02f, rBell * geo.bellMul);
 
         // A brass mouthpiece is not part of the taper: it is a wide cup
@@ -280,8 +464,8 @@ public:
             // A tuba mouthpiece is not a trumpet's: cup and throat both scale
             // with the instrument, and using a trumpet-sized throat on a wide
             // bore is a severe mismatch that chokes the low instruments.
-            radius[0] = kCupRadius * geo.mouthMul;
-            radius[1] = kThroatRadius * geo.mouthMul;
+            radius[0] = kCupRadius * geo.mouthMul * dia;
+            radius[1] = kThroatRadius * geo.mouthMul * dia;
             segScale[0] = kCupLenScale;
             segScale[1] = kThroatLenScale;
         }
@@ -327,10 +511,16 @@ public:
         static constexpr float matHfDb[] = { -2.0f,  -1.3f,  -0.55f,  -0.3f,   -0.15f };
         const int mi = std::max (0, std::min (4, s.material));
 
-        const float roundTrip = matLoss[mi] - 0.12f * s.wallDamp;
+        // Both the broadband loss and its high-frequency slope come from the
+        // wall boundary layer, whose thickness does not depend on the bore, so
+        // both scale with 1/radius.
+        const float lossScale = std::max (0.35f, std::min (2.8f, 1.0f / dia));
+        const float roundTrip = std::max (0.90f,
+                                          1.0f - (1.0f - (matLoss[mi] - 0.12f * s.wallDamp))
+                                                 * lossScale);
         gSeg = std::pow (roundTrip, 1.0f / (2.0f * kSegments));
 
-        const float hfDb = matHfDb[mi] * (1.0f + 1.4f * s.wallDamp);
+        const float hfDb = matHfDb[mi] * (1.0f + 1.4f * s.wallDamp) * lossScale;
         wallLp = solveWallPole (hfDb);
 
         // Open-end reflection turns into radiation around ka ~ 1.
@@ -364,10 +554,14 @@ public:
     // offset is solved for, not assumed. lipRatio is the nominal embouchure
     // (lip resonance as a fraction of the sounding pitch); the player's
     // tension control then bends around this calibration.
-    void tuneForPlayed (float f0Target, const LipLoad& lip, float lipRatio)
+    // absHz > 0 pins the valve resonance there instead of tracking the note.
+    // A cane reed resonates near 2 kHz whatever it is playing, which is
+    // precisely why a reed instrument's pitch comes from its bore alone.
+    void tuneForPlayed (float f0Target, const LipLoad& lip, float lipRatio,
+                        float absHz = 0.0f)
     {
         f0Requested = f0Target;
-        const float fLip = f0Target * lipRatio;
+        const float fLip = absHz > 0.0f ? absHz : f0Target * lipRatio;
 
         // Start from the passive-peak tuning and shorten/lengthen until the
         // solved sounding pitch matches. played ~ 1/L, so scaling the segment
@@ -377,7 +571,8 @@ public:
         float played = 0.0f;
         for (int it = 0; it < 6; ++it)
         {
-            played = playedFrequency (fLip, lip, f0Target * 0.75f, f0Target * 1.45f, seg);
+            played = playedFrequency (fLip, lip, f0Target * 0.75f, f0Target * 1.45f, seg,
+                                      absHz > 0.0f);
             if (played <= 0.0f) break;
             const float err = played / f0Target;
             if (std::abs (err - 1.0f) < 1.0e-4f) break;
@@ -393,7 +588,13 @@ public:
 
         // Second register: the next phase-closing solution when the embouchure
         // tightens. Reported to the UI and used as the toot target.
-        const float fTight = playedFrequency (f0Target * 2.0f * lipRatio, lip,
+        // Second register. With lips the player firms up to reach it; with a
+        // fixed reed resonance nothing about the exciter changes, so the bore's
+        // own next mode is what answers -- which is why a clarinet overblows a
+        // twelfth where a brass player can pick any harmonic.
+        const float fTight = playedFrequency (absHz > 0.0f ? absHz
+                                                           : f0Target * 2.0f * lipRatio,
+                                              lip,
                                               f0Target * 1.45f, f0Target * 4.0f, segLenTarget);
         tootF = fTight > 0.0f ? fTight : tunedF0 * 2.2f;
     }
@@ -473,8 +674,17 @@ public:
     // lip resonance, and Z must therefore be on its capacitive flank, the
     // sounding pitch always lands slightly ABOVE a bore impedance peak — which
     // is why the bore is built a little long (see tuneForPlayed).
+    // preferLowest picks the lowest sustaining regime in the window instead of
+    // the strongest. With lips the strongest is right, because the player's own
+    // resonance is what selects a register and the solver should follow it.
+    // A cane reed selects nothing: its resonance sits far above every note, so
+    // several bore modes satisfy the loop at once and the strongest is not
+    // reliably the lowest. Without this a reed jumps to its second register at
+    // some notes and not others, which is not a register change but a solver
+    // artefact -- measured as a 66 cent leap between two adjacent semitones.
     float playedFrequency (float fLipHz, const LipLoad& lip,
-                           float fLo, float fHi, float segLenSamples) const
+                           float fLo, float fHi, float segLenSamples,
+                           bool preferLowest = false) const
     {
         auto loop = [&] (float f)
         {
@@ -493,7 +703,11 @@ public:
             if ((prev.imag() < 0.0f) != (g.imag() < 0.0f))
             {
                 const float re = 0.5f * (prev.real() + g.real());
-                if (re < bestGain) { bestGain = re; bestA = prevF; bestB = f; }
+                if (re < bestGain)
+                {
+                    bestGain = re; bestA = prevF; bestB = f;
+                    if (preferLowest) break;
+                }
             }
             prevF = f; prev = g;
         }
@@ -1039,12 +1253,25 @@ public:
         acc = 0.0f;
     }
 
-    // Lip mechanical resonance (Hz). Stiffness is fixed (see kLipStiffness),
-    // so the resonance selects the effective mass; higher resonance = tighter,
-    // lighter embouchure = higher register.
+    // Switch excitation type: lips, one of the cane reeds, or a free reed.
+    // Stiffness, area, slit width and striking direction all change together,
+    // so this is applied as a unit rather than as separate controls.
+    void setSpec (const ExciterSpec& s)
+    {
+        sign  = s.sign;
+        k     = s.stiffness;
+        aVal  = s.area;
+        wVal  = s.width;
+        setResonance (fRes);
+    }
+
+    // Valve mechanical resonance (Hz). Stiffness is fixed per exciter type, so
+    // the resonance selects the effective mass; for lips a higher resonance is
+    // a tighter, lighter embouchure and a higher register.
     void setResonance (float hz)
     {
-        mLip = lipMassFor (hz);
+        fRes = hz;
+        mLip = valveMassFor (hz, k);
         updateDamping();
     }
     void setDamping (float zeta) { zeta_ = std::max (0.02f, zeta); updateDamping(); }
@@ -1092,7 +1319,9 @@ public:
         float yN = y;
         for (int it = 0; it < 6; ++it)
         {
-            const float f = kArea * solveDeltaP (yN, drive, zSum);
+            // The striking direction: a positive pressure across the lips
+            // drives them apart, and across a cane reed drives it shut.
+            const float f = sign * aVal * solveDeltaP (yN, drive, zSum);
             const float yNext = yPred
                 + kBeta * dt * dt * (f - r * vPred - k * (yPred - yEq)) / denom;
             const float diff = std::abs (yNext - yN);
@@ -1111,7 +1340,7 @@ public:
         const float dp = solveDeltaP (y, drive, zSum);
         float flow = 0.0f;
         if (y > 0.0f)
-            flow = (dp >= 0.0f ? 1.0f : -1.0f) * kLipWidth * y
+            flow = (dp >= 0.0f ? 1.0f : -1.0f) * wVal * y
                  * std::sqrt (2.0f * std::abs (dp) / kAirDensity);
         // Physical didgeridoo flows stay well under a litre per second; a
         // larger value is a numerical excursion, not a breath.
@@ -1119,7 +1348,7 @@ public:
         return { flow, dp };
     }
 
-    static constexpr float kArea = kLipArea;
+    float valveArea() const { return aVal; }
 
 private:
     void updateDamping()
@@ -1137,7 +1366,7 @@ private:
     {
         if (yOpen <= 0.0f)
             return drive;
-        const float a = kLipWidth * yOpen * std::sqrt (2.0f / kAirDensity);
+        const float a = wVal * yOpen * std::sqrt (2.0f / kAirDensity);
         const float za = zSum * a;
         const float s = 0.5f * (-za + std::sqrt (za * za + 4.0f * std::abs (drive)));
         const float dp = s * s;
@@ -1152,7 +1381,7 @@ private:
     float mLip = 2.4e-3f;
     float k = kLipStiffness, r = 0.0f, zeta_ = 0.125f;
     float yEq = 5.0e-4f;
-    float psi = 3.4e4f;
+    float sign = +1.0f, aVal = kLipArea, wVal = kLipWidth, fRes = 70.0f;
 };
 
 } // namespace didge

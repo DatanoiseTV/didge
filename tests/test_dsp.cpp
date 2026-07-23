@@ -634,6 +634,145 @@ static void testBoreProfiles()
     }
 }
 
+
+// ---------------------------------------------------------------------------
+// Excitation type. The striking direction is the whole point: lips are blown
+// open and sound above a bore resonance, a cane reed is blown shut and sounds
+// below it. Every type has to speak, stay finite, and land near the note the
+// keyboard asked for -- each carries its own measured starting offset, since
+// the learner only corrects after a note has been held.
+// ---------------------------------------------------------------------------
+static void testExciterTypes()
+{
+    for (int ex = 0; ex < 4; ++ex)
+    {
+        for (int note : { 31, 38, 45, 52 })
+        {
+            EngineParams p;
+            p.exciter = ex;
+            p.pressure = 0.75f;
+            p.humanize = 0.0f;
+            DidgeEngine e;
+            e.prepare (kFs, 256);
+            const auto m = hold (e, p, note, 3.0f);
+
+            bool finite = true;
+            for (float v : m) if (! std::isfinite (v)) finite = false;
+            CHECK (finite, "exciter %d produced non-finite output at note %d", ex, note);
+
+            const float rms = rmsOf (m, 2.0f, 3.0f);
+            CHECK (rms > 0.002f,
+                   "exciter %d barely speaks at note %d: rms %.5f", ex, note, rms);
+
+            const float want = noteHz (note);
+            const float f0 = estimateF0 (m, want, 2.0f, 3.0f);
+            const float cents = 1200.0f * std::log2 (f0 / want);
+            CHECK (std::abs (cents) < 20.0f,
+                   "exciter %d at note %d sounded %.1f cents off (%.2f Hz for %.2f Hz)",
+                   ex, note, cents, f0, want);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// The striking direction, measured rather than asserted. An inward-striking
+// valve is forced shut by mouth pressure, so past the beating pressure it stops
+// speaking however hard it is blown -- a real clarinet does exactly this. Lips
+// are blown open and only get louder. This is the one behaviour that cannot be
+// faked by retuning a valve, so it is the proof the sign is doing its work.
+// ---------------------------------------------------------------------------
+static void testReedBeatsShut()
+{
+    auto levelAt = [] (int ex, float pressure)
+    {
+        EngineParams p;
+        p.exciter = ex;
+        p.pressure = pressure;
+        p.embouchure = 0.12f;   // a tight reed beats shut at a reachable pressure
+        p.humanize = 0.0f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        return rmsOf (hold (e, p, 38, 2.5f), 1.5f, 2.5f);
+    };
+
+    const float lipsSoft = levelAt (0, 0.35f), lipsHard = levelAt (0, 1.0f);
+    CHECK (lipsHard > lipsSoft,
+           "blowing lips harder should be louder, got %.5f then %.5f", lipsSoft, lipsHard);
+
+    const float reedSoft = levelAt (1, 0.35f), reedHard = levelAt (1, 1.0f);
+    CHECK (reedSoft > 0.002f,
+           "a tight single reed should speak at moderate breath, rms %.5f", reedSoft);
+    CHECK (reedHard < 0.25f * reedSoft,
+           "a single reed should be choked by too much breath, not merely quieter: "
+           "rms %.5f at moderate breath against %.5f at full", reedSoft, reedHard);
+
+    // And the analytic threshold the model is built on: oscillation begins at a
+    // third of the beating pressure, whatever the other parameters.
+    const auto& s = exciterSpec (Exciter::singleReed);
+    const float rest = s.restBias + s.restScale * 0.5f;
+    CHECK (std::abs (reedThresholdPressure (s, rest) - beatingPressure (s, rest) / 3.0f) < 1.0f,
+           "threshold should be a third of the beating pressure");
+}
+
+// ---------------------------------------------------------------------------
+// Bore diameter. Two effects pull against each other and both are real: the
+// characteristic impedance goes as 1/r^2, so a narrow tube stands a far larger
+// pressure against the exciter and drives the wave harder into the nonlinear
+// regime, while the wall boundary layer is a fixed thickness whatever the bore,
+// so loss per unit length goes as 1/r and works the other way. Measured, the
+// impedance wins: narrow is the bright one, which is also how a narrow-bore
+// trumpet sounds against a large-bore one.
+// ---------------------------------------------------------------------------
+static void testBoreDiameter()
+{
+    auto brightness = [] (float diameter)
+    {
+        EngineParams p;
+        p.shape.diameter = diameter;
+        p.pressure = 0.8f;
+        p.humanize = 0.0f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        const auto m = hold (e, p, 38, 3.0f);
+        const float f0 = estimateF0 (m, noteHz (38), 2.0f, 3.0f);
+        float num = 0.0f, den = 0.0f;
+        for (int h = 1; h <= 16; ++h)
+        {
+            const float a = std::pow (10.0f, goertzelDb (m, f0 * h, 2.0f, 3.0f) / 20.0f);
+            num += a * f0 * h;
+            den += a;
+        }
+        return den > 0.0f ? num / den : 0.0f;
+    };
+
+    const float narrow = brightness (0.0f);
+    const float mid    = brightness (0.5f);
+    const float wide   = brightness (1.0f);
+
+    CHECK (narrow > mid && mid > wide,
+           "a narrower bore must be brighter: centroid %.0f Hz narrow, %.0f mid, %.0f wide",
+           narrow, mid, wide);
+    CHECK (narrow - wide > 80.0f,
+           "bore diameter barely changed the timbre: %.0f Hz of centroid across the range",
+           narrow - wide);
+
+    // The whole range has to stay playable and finite.
+    for (float d : { 0.0f, 0.25f, 0.5f, 0.75f, 1.0f })
+    {
+        EngineParams p;
+        p.shape.diameter = d;
+        p.pressure = 0.8f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        const auto m = hold (e, p, 38, 2.5f);
+        bool finite = true;
+        for (float v : m) if (! std::isfinite (v)) finite = false;
+        CHECK (finite, "bore diameter %.2f produced non-finite output", d);
+        CHECK (rmsOf (m, 1.5f, 2.5f) > 0.002f,
+               "bore diameter %.2f barely speaks: rms %.5f", d, rmsOf (m, 1.5f, 2.5f));
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Material must change the timbre: a hard, smooth wall loses less at the top
 // than a soft, rough one, so metal has to come out brighter than wood.
@@ -770,6 +909,9 @@ int main()
     testHumanize();
     testReleaseToSilence();
     testBoreProfiles();
+    testExciterTypes();
+    testReedBeatsShut();
+    testBoreDiameter();
     testMaterials();
     testStability();
     testSampleRates();

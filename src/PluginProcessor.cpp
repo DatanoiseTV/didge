@@ -85,8 +85,10 @@ didge::EngineParams DidgeAudioProcessor::buildEngineParams() const
     p.shape.flare    = raw (flare);
     p.shape.texture  = raw (texture);
     p.shape.wallDamp = raw (wallDamp);
+    p.shape.diameter = raw (boreDia);
     p.shape.profile  = static_cast<int> (raw (boreProfile));
     p.shape.material = static_cast<int> (raw (material));
+    p.exciter        = static_cast<int> (raw (exciter));
 
     p.spaceMix   = raw (spaceMix);
     p.spaceSize  = raw (spaceSize);

@@ -56,8 +56,50 @@ the result of simulating air:
 | CC2 / CC11 | Breath and expression scale the blowing pressure |
 | Vowel / Mouth Open | Moves the tongue, colouring the drone |
 | Growl | Voiced modulation, as if humming while blowing |
+| Exciter | Lips, single reed, double reed or free reed |
 | Velocity | Routable to breath, attack, embouchure or brightness |
 | Humanize | Per-note and continuous inconsistency, so repeats are never identical |
+
+**Exciter** decides what turns the breath into an oscillation, and it changes
+the instrument rather than its colour. There are only a few ways to build that
+device, and the one that matters most is which way the pressure across the
+valve pushes it:
+
+| Exciter | Direction | Consequence |
+| --- | --- | --- |
+| Lips | Blown open | Sounds above the bore resonance. The lip resonance sits near the note, so the player picks the register -- which is why a brass player gets a whole harmonic series from one tube |
+| Single reed | Blown shut | Sounds below the bore resonance. A cane reed resonates near 2.2 kHz whatever it plays, so the bore alone decides the pitch |
+| Double reed | Blown shut | The same, but stiffer, narrower and damped hard by the lips; the hardest here to blow, as it is in life |
+| Free reed | Blown shut | A metal tongue that nothing damps but the air, sharp enough that it sets the pitch and the pipe follows it |
+
+An inward-striking valve has a real threshold and a real ceiling. Blowing
+begins at a third of the beating pressure -- the classical result for a reed on
+a lossless resonator, which this model reproduces exactly because it falls out
+of the same equations -- and above the beating pressure the reed is held shut
+and the instrument stops. Both ends are reachable from the Breath and Aperture
+controls, so a tight reed starts on very little air and chokes early, and an
+open one needs more of both. Lips do neither; they only get louder.
+
+The exciters also differ in how much the player's mouth can load them.
+Tarnopolsky et al. measured a didgeridoo player's vocal tract dominating the
+bore by more than an order of magnitude, through the wide, low-impedance
+aperture that lips present. A cane reed sits behind a slit a fraction of a
+millimetre high; Chen, Smith and Wolfe found clarinettists need a tract
+impedance exceeding the bore's to bend a note or reach the altissimo, and that
+only advanced players manage it. Leaving the coupling at the didgeridoo value
+lets the tract seize a reed's pitch outright -- measured here, a single reed
+above D3 stopped tracking the keyboard and sat on the same three tract
+resonances whatever note was asked for.
+
+**Bore diameter** scales the whole tube, half to double, and the two effects it
+has pull against each other. The characteristic impedance goes as 1/r^2, so a
+narrow tube stands a much larger pressure against the exciter and drives the
+wave further into the nonlinear regime; the wall boundary layer is a fixed
+thickness whatever the bore, so loss per unit length goes as 1/r and works the
+other way. Measured, the impedance wins by a long way: the spectral centroid
+runs from about 490 Hz at the narrow end to 160 Hz at the wide one. Narrow is
+the bright, brilliant one and wide the broad, dark one, which is how narrow-
+and large-bore brass instruments are described.
 
 **Bore profile** is the control with the largest effect, because it sets the
 resonance series rather than the tone colour. Twelve profiles are built from
@@ -179,6 +221,16 @@ rate.
 
 - Tarnopolsky, Fletcher, Hollenberg, Lange, Smith & Wolfe, "The vocal tract and
   the sound of a didgeridoo", *Nature* **436**, 39 (2005).
+- Fletcher & Rossing, *The Physics of Musical Instruments*, ch. 13-15, for the
+  classification of pressure-controlled valves and the reed and lip parameters.
+- Dalmont, Gilbert & Ollivier, "Nonlinear characteristics of single-reed
+  instruments", *JASA* **118**, 3294 (2005), for beating and threshold pressures.
+- Facchinetti, Boutillon & Constantinescu, "Numerical and experimental study of
+  the vibrations of a clarinet reed", *JASA* **114**, 3345 (2003).
+- Chen, Smith & Wolfe, "Pitch bending and glissandi on the clarinet: roles of
+  the vocal tract and partial tone hole closure", *JASA* **126**, 1511 (2009).
+- St. Hilaire, Wilson & Beavers, "Aerodynamic excitation of the harmonium
+  reed", *JFM* **91**, 693 (1979).
 - Smith, Rey, Dickens, Fletcher, Hollenberg & Wolfe, "Vocal tract resonances
   and the sound of the Australian didjeridu", *JASA* **121**(1), 547 (2007).
 - Silva, Vergez, Guillemain, Kergomard et al., "Time-domain simulation of brass

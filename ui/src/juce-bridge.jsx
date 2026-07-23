@@ -68,6 +68,8 @@
   };
   const CUP_R = 0.0085, THROAT_R = 0.0021;
   const MATERIALS = ['Wood', 'Bamboo', 'Brass', 'Steel', 'Glass'];
+  // Order must match didge::Exciter in src/dsp/DidgeModel.h.
+  const EXCITERS = ['Lips', 'Single Reed', 'Double Reed', 'Free Reed', 'Air Jet'];
 
   const pct  = (n) => Math.round(n * 100) + '%';
   const msOf = (m) => (n) => { const v = m.to(n); return (v < 10 ? v.toFixed(1) : Math.round(v)) + ' ms'; };
@@ -110,6 +112,8 @@
     flare:       { label: 'Flare',        map: M.unit,       def: 0.5,                     format: pct },
     texture:     { label: 'Texture',      map: M.unit,       def: 0.3,                     format: pct },
     wallDamp:    { label: 'Wall Damp',    map: M.unit,       def: 0.3,                     format: pct },
+    boreDia:     { label: 'Bore',         map: M.unit,       def: 0.5,
+                   format: (n) => (2 * 14 * Math.pow(2, 2 * (n - 0.5))).toFixed(1) + ' mm' },
 
     spaceMix:    { label: 'Space',        map: M.unit,       def: 0.18,                    format: pct },
     spaceSize:   { label: 'Size',         map: M.unit,       def: 0.4,                     format: pct },
@@ -400,10 +404,11 @@
 
   global.JuceBridge = { useJuceSlider, useJuceToggle, useJuceChoice, useJuceEvent, useEventRef,
                         emitNative, PARAMS, VOWELS, VEL_TARGETS,
-                        BORE_PROFILES, MATERIALS, M };
+                        BORE_PROFILES, MATERIALS, EXCITERS, M };
   global.PARAMS = PARAMS;
   global.VOWELS = VOWELS;
   global.VEL_TARGETS = VEL_TARGETS;
   global.BORE_PROFILES = BORE_PROFILES;
   global.MATERIALS = MATERIALS;
+  global.EXCITERS = EXCITERS;
 })(window);

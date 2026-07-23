@@ -47,6 +47,7 @@ struct EngineParams
     float breath     = 0.25f;   // turbulence noise 0..1
 
     // Embouchure
+    int   exciter      = 0;     // Exciter: lips, cane reeds, free reed, air jet
     float tensionSemis = 0.0f;  // lip-tension trim, semitones
     float lipDamp      = 0.125f;// 0..1 -> damping ratio
     float embouchure   = 0.5f;  // 0..1 rest opening
@@ -280,6 +281,7 @@ private:
     float tunedTargetHz = 0.0f;
     float tunedTrim = 0.0f;
     BoreShape tunedShape;
+    int   tunedExciter = -1;
     bool  everTuned = false;
     bool  needsRetune = true;
 

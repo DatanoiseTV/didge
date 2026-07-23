@@ -251,10 +251,15 @@ void DidgeEngine::reset()
 
 LipLoad DidgeEngine::buildLipLoad (const EngineParams& p) const
 {
+    const auto& s = exciterSpec (static_cast<Exciter> (p.exciter));
     LipLoad load;
-    load.zeta = 0.05f + 0.45f * p.lipDamp;
-    load.restOpening = -0.6e-3f + 1.8e-3f * p.embouchure;
-    load.mouthPressure = std::max (150.0f, kMaxLungPressure * p.pressure);
+    load.sign      = s.sign;
+    load.stiffness = s.stiffness;
+    load.area      = s.area;
+    load.width     = s.width;
+    load.zeta = std::min (2.0f, (0.05f + 0.45f * p.lipDamp) * s.dampScale);
+    load.restOpening = s.restBias + s.restScale * p.embouchure;
+    load.mouthPressure = std::max (150.0f, kMaxLungPressure * s.pressScale * p.pressure);
     return load;
 }
 
@@ -341,10 +346,29 @@ void DidgeEngine::refreshRegister()
 void DidgeEngine::retune (const EngineParams& p, bool force)
 {
     const float target = noteToHz (static_cast<float> (droneNote) + p.tuneCents * 0.01f);
-    const float trimNow = pitchTrim.forFrequency (target);
+    // The learned trim is calibrated on lips. An inward-striking valve sounds
+    // below the bore resonance and flattens further as it is driven past
+    // threshold -- as a real reed does when it is blown hard -- so each exciter
+    // carries its own measured starting offset. Without it every first note on
+    // a reed lands about fifty cents flat before the learner has run once.
+    //
+    // Where that offset is corrected matters. For lips and cane reeds the bore
+    // decides the pitch, so shortening the bore moves it one for one. A free
+    // reed does not work that way: its own sharp resonance holds the pitch, and
+    // trimming the bore moves the note by less than a fifth of what was asked,
+    // asymptotically -- measured 166 cents of bore trim buying 29 cents of
+    // pitch. For that exciter the correction goes on the reed instead, where it
+    // lands in full.
+    const auto& tuneSpec = exciterSpec (static_cast<Exciter> (p.exciter));
+    const float trimNow = pitchTrim.forFrequency (target)
+                        * std::pow (2.0f, tuneSpec.trimCents / 1200.0f);
 
     const bool shapeChanged = ! everTuned || tunedShape.differsFrom (p.shape);
-    const bool noteChanged  = ! everTuned || needsRetune
+    // Changing the exciter changes which side of the bore resonance the
+    // instrument sounds on, so the bore has to be rebuilt for it and the
+    // learned trim thrown away -- it was measured on a different instrument.
+    const bool exciterChanged = ! everTuned || p.exciter != tunedExciter;
+    const bool noteChanged  = ! everTuned || needsRetune || exciterChanged
                             || std::abs (target - tunedTargetHz) > tunedTargetHz * 0.0008f;
     needsRetune = false;
 
@@ -357,18 +381,23 @@ void DidgeEngine::retune (const EngineParams& p, bool force)
     if (! force && ! shapeChanged && ! noteChanged)
         return;
 
-    if (shapeChanged)
+    if (shapeChanged || exciterChanged)
     {
         bore.setShape (p.shape);
-        // A different tube sounds differently sharp; start the learner over.
+        // A different tube, or a different thing driving it, sounds differently
+        // sharp; start the learner over.
         pitchTrim.resetLearning();
     }
 
-    bore.tuneForPlayed (target * trimNow, buildLipLoad (p), kNominalLipRatio);
+    const auto& spec = exciterSpec (static_cast<Exciter> (p.exciter));
+    bore.tuneForPlayed (target * trimNow, buildLipLoad (p),
+                        spec.ratio > 0.0f ? spec.ratio : kNominalLipRatio,
+                        spec.absHz);
 
     tunedTargetHz = target;
     tunedTrim = trimNow;
     tunedShape = p.shape;
+    tunedExciter = p.exciter;
 
     // Snap only when nothing is ringing, so legato note changes slur.
     if (! everTuned || pressureEnv < 0.02f * kMaxLungPressure)
@@ -392,12 +421,27 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
 
     tract.setVowel (p.vowelX, p.vowelY);
 
+    const auto& spec = exciterSpec (static_cast<Exciter> (p.exciter));
+
+    // Overblowing is a lip technique. A cane reed resonates far above anything
+    // it plays and cannot be lipped into the next register -- a clarinettist
+    // reaches it with a register hole, and every other note with fingering, so
+    // on the reed exciters the note asked for is simply the note built. The
+    // second held note therefore selects a register only when the exciter is
+    // one whose resonance tracks the note.
+    const bool tootActive = tootNote >= 0 && spec.absHz <= 0.0f;
+
     // Reaching the overblown register takes a tighter embouchure as well as a
     // higher lip resonance — with the loose setting that suits the drone, the
     // toot barely speaks (measured 0.0007 rms against 0.038 when tightened).
     // A player does this without thinking, so asking for the higher note is
     // enough here: pressing it also firms the lips.
-    float embNow = tootNote >= 0 ? p.embouchure * 0.45f : p.embouchure;
+    //
+    // Only lips work that way. Squeezing a cane reed does not select a
+    // register, it just moves the reed closer to beating shut -- a clarinet
+    // overblows with a register hole, not with the embouchure -- so the
+    // aperture is left alone and the bore's own next mode carries the toot.
+    float embNow = tootActive ? p.embouchure * 0.45f : p.embouchure;
     float dampNow = p.lipDamp;
     {
         const auto v = static_cast<VelTarget> (p.velTarget);
@@ -408,8 +452,9 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         else if (v == VelTarget::brightness)
             dampNow *= 1.0f - a * 0.8f * vn;         // less damping, brighter
     }
-    lips.setDamping (0.05f + 0.45f * dampNow);
-    lips.setRestOpening (-0.6e-3f + 1.8e-3f * embNow);
+    lips.setSpec (spec);
+    lips.setDamping (std::min (2.0f, (0.05f + 0.45f * dampNow) * spec.dampScale));
+    lips.setRestOpening (spec.restBias + spec.restScale * embNow);
 
     // Humanising. Two parts: an offset drawn once per note, so repeats are
     // never identical, and a slow wander that keeps moving under a held note,
@@ -427,8 +472,19 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     // Register: the drone plays at the calibrated embouchure; a second, higher
     // held note tightens the lips onto the bore's next sustaining regime.
     const float droneTargetHz = noteToHz (static_cast<float> (droneNote) + p.tuneCents * 0.01f);
-    float lipBase = droneTargetHz * kNominalLipRatio;
-    if (tootNote >= 0)
+    // A cane reed's resonance is a property of the reed, not of the note, so it
+    // stays where it is while the bore does the choosing.
+    float lipBase = spec.absHz > 0.0f
+                  ? spec.absHz
+                  : droneTargetHz * (spec.ratio > 0.0f ? spec.ratio : kNominalLipRatio);
+    // A reed-led exciter has to see the same trimmed target the bore was built
+    // around. Otherwise the solver places the bore for a reed at one frequency
+    // while the running reed sits at another, the two disagree, and the trim
+    // that should move the pitch one for one moves it by a fifth of that --
+    // which is what made the free reed look immovably flat.
+    if (spec.pitchFromValve && tunedTargetHz > 0.0f)
+        lipBase = tunedTargetHz * tunedTrim * spec.ratio;
+    if (tootActive)
     {
         // Overblowing does not give you an arbitrary note: the tube offers one
         // higher sustaining regime, and the player lips it a little either
@@ -457,7 +513,7 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     // resonance and the tube length do not scale quite identically through an
     // outward-striking valve. Measured and corrected here.
     bore.setLengthScale (std::pow (1.0f / bendMul, 1.042f));
-    vTootActive.store (tootNote >= 0, std::memory_order_relaxed);
+    vTootActive.store (tootActive, std::memory_order_relaxed);
 
     // Velocity routing. A wind player blowing harder also tightens up and
     // tongues faster, so the destinations beyond plain breath are the ones
@@ -474,8 +530,11 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     // register sits where the bore's losses bite harder, so without the extra
     // push it stops speaking as soon as the walls are at all damped -- which
     // is exactly what a wooden tube is.
-    const float regScale = tootNote >= 0 ? 1.45f : 1.0f;
-    const float pTargetOn = kMaxLungPressure * p.pressure * velScale * regScale * humPressMul
+    const float regScale = tootActive ? 1.45f : 1.0f;
+    // Reeds need more breath than lips: a double reed is the hardest thing in
+    // the orchestra to blow, a free reed among the easiest.
+    const float pTargetOn = kMaxLungPressure * spec.pressScale
+                          * p.pressure * velScale * regScale * humPressMul
                           * std::max (0.0f, std::min (1.5f, ccPressureScale));
 
     // Harder notes speak faster; softer ones ease in.
@@ -496,7 +555,10 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
 
     const int profIdx = std::max (0, std::min ((int) std::size (kProfileTrimDb) - 1,
                                                p.shape.profile));
-    const float profileTrim = std::pow (10.0f, kProfileTrimDb[profIdx] / 20.0f);
+    // Bore profile and exciter each carry their own level trim, so neither
+    // control jumps in loudness when it is switched.
+    const float profileTrim = std::pow (10.0f, (kProfileTrimDb[profIdx]
+                                                + spec.trimDb) / 20.0f);
 
     const bool analyse = spectrumOn.load (std::memory_order_relaxed);
 
@@ -596,7 +658,7 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         // loop with no energy source behind it, which left the instrument
         // humming at -76 dBFS forever instead of falling silent.
         const float engage = std::min (1.0f, pressureEnv / (0.05f * kMaxLungPressure));
-        const float voice = engage * p.tractMix;
+        const float voice = engage * p.tractMix * spec.tractCoupling;
 
         // The tract is treated as a passive resonator hanging off the mouth,
         // excited by the oscillating lip flow, while the steady lung pressure

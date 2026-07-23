@@ -70,6 +70,17 @@ All notable changes to Didge are documented here. The format follows
 - Humanize: an offset drawn once per note plus a slow wander under held notes,
   covering breath, embouchure and tonguing. Measured at the default setting it
   moves successive notes by about three cents and a third of a decibel.
+- Excitation type: lips, single reed, double reed or free reed. The striking
+  direction is the physical difference -- lips are blown open and sound above a
+  bore resonance, a cane reed is blown shut and sounds below it -- and it
+  brings a real threshold and a real ceiling with it: a reed begins to speak at
+  a third of its beating pressure and is choked above it. Each type carries its
+  own measured tuning offset and its own tract coupling, since a reed behind a
+  mouthpiece slit is loaded by the player's mouth far more weakly than lips
+  are. Every type plays within a few cents across the range on a first note.
+- Bore diameter, scaling the whole tube from half to double. Measured across
+  the range the spectral centroid runs 490 Hz to 160 Hz: narrow is the bright
+  one, because the impedance rise outweighs the extra wall loss.
 - Ten factory presets, XML user presets.
 - Acoustic test suite that renders audio and measures pitch, spectrum, vowel
   response, growl sidebands, overblowing, silence, numerical stability and

@@ -61,8 +61,10 @@ namespace didge::ids
     inline constexpr const char* flare      = "flare";       // 0..1
     inline constexpr const char* texture    = "texture";     // 0..1
     inline constexpr const char* wallDamp   = "wallDamp";    // 0..1
+    inline constexpr const char* boreDia    = "boreDia";     // 0..1
     inline constexpr const char* boreProfile= "boreProfile"; // choice
     inline constexpr const char* material   = "material";    // choice
+    inline constexpr const char* exciter    = "exciter";     // choice
 
     // Order must match didge::BoreProfile / didge::BoreMaterial in
     // dsp/DidgeModel.h.
@@ -73,6 +75,10 @@ namespace didge::ids
     };
     inline const juce::StringArray materialNames {
         "Wood", "Bamboo", "Brass", "Steel", "Glass"
+    };
+    // Order must match didge::Exciter in dsp/DidgeModel.h.
+    inline const juce::StringArray exciterNames {
+        "Lips", "Single Reed", "Double Reed", "Free Reed", "Air Jet"
     };
 
     // Output
@@ -153,6 +159,11 @@ namespace didge::ids
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.18f, attrs (pct)));
         add (std::make_unique<P> (juce::ParameterID { embouchure, 1 }, "Embouchure",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.5f, attrs (pct)));
+        // What turns the breath into an oscillation. It changes which side of a
+        // bore resonance the instrument sounds on, so it changes the
+        // instrument, not just its colour.
+        add (std::make_unique<Pc> (juce::ParameterID { exciter, 1 }, "Exciter",
+                                   exciterNames, 0));
         add (std::make_unique<P> (juce::ParameterID { bendRange, 1 }, "Bend Range",
                                   Rng { 0.0f, 24.0f, 0.5f }, 2.0f,
                                   attrs ([] (float v, int)
@@ -191,6 +202,16 @@ namespace didge::ids
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
         add (std::make_unique<P> (juce::ParameterID { wallDamp, 1 }, "Wall Damping",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
+        // Overall bore width, half to double. Shown as the actual mouth-end
+        // diameter, because that is the number an instrument is described by.
+        add (std::make_unique<P> (juce::ParameterID { boreDia, 1 }, "Bore Diameter",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
+                                  attrs ([] (float v, int)
+                                  {
+                                      const float mm = 2.0f * 14.0f
+                                                     * std::pow (2.0f, 2.0f * (v - 0.5f));
+                                      return juce::String (mm, 1) + " mm";
+                                  })));
         // The profile sets the resonance series, which is most of what makes
         // one wind instrument sound unlike another.
         add (std::make_unique<Pc> (juce::ParameterID { boreProfile, 1 }, "Bore Profile",

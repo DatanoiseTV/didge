@@ -3,7 +3,7 @@
    Breath · Embouchure · Voice · Instrument · Space
    ============================================================ */
 
-const { useJuceSlider, useJuceEvent, emitNative, PARAMS, VOWELS } = JuceBridge;
+const { useJuceSlider, useJuceChoice, useJuceEvent, emitNative, PARAMS, VOWELS } = JuceBridge;
 
 /* ---- BREATH: how the player pushes air ---- */
 function BreathPanel() {
@@ -37,11 +37,16 @@ function BreathPanel() {
   );
 }
 
-/* ---- EMBOUCHURE: the lip reed itself ---- */
+/* ---- EMBOUCHURE: whatever turns the breath into an oscillation ---- */
 function EmbouchurePanel() {
+  const [ex] = useJuceChoice('exciter');
+  const reed = ex > 0 && ex < 4;
   return (
     <div className="panel">
-      <PHead title="Embouchure" />
+      <PHead title={reed ? 'Reed' : ex === 4 ? 'Jet' : 'Embouchure'} />
+      {/* Lips sound above a bore resonance and a cane reed below it, so this
+          is not a colour control -- it changes which instrument this is. */}
+      <div className="prow"><PCycle id="exciter" options={EXCITERS} label="EXCITER" /></div>
       <div className="krow">
         <PKnob id="tension" />
         <PKnob id="lipDamp" />
@@ -98,7 +103,7 @@ function InstrumentPanel() {
       <div className="krow">
         <PKnob id="texture" alt />
         <PKnob id="wallDamp" alt />
-        <div className="knob spacer-knob" />
+        <PKnob id="boreDia" alt />
       </div>
       {/* The profile decides the resonance series, so it changes the
           instrument far more than any knob here: a cylinder gives odd
