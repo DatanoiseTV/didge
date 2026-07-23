@@ -14,6 +14,7 @@
 
 #include "DidgeModel.h"
 #include "Ambience.h"
+#include "Spectrum.h"
 
 #include <atomic>
 
@@ -180,6 +181,16 @@ public:
     float vizBorePressure (int i) const { return vPress[i].load (std::memory_order_relaxed); }
     float vizBoreFlow (int i)     const { return vFlowSeg[i].load (std::memory_order_relaxed); }
     float vizMeanFlow()           const { return vMeanFlow.load (std::memory_order_relaxed); }
+
+    // The analyser costs about a quarter of the engine's CPU, and it is only
+    // ever looked at. The editor switches it on while it is open, so a plugin
+    // sitting in a mix with its window closed pays nothing for it.
+    void setSpectrumEnabled (bool on) { spectrumOn.store (on, std::memory_order_relaxed); }
+
+    // Output spectrum for the display, in dBFS per log-spaced band.
+    static constexpr int kSpectrumBands = Spectrum::kBands;
+    float vizSpectrum (int i) const { return vSpec[i].load (std::memory_order_relaxed); }
+    float spectrumBandHz (int i) const { return spectrum.centreHz (i); }
     float vizTurbulence()         const { return vTurb.load (std::memory_order_relaxed); }
 
     // One cycle-ish of the lip opening, decimated, so the UI can draw the
@@ -200,6 +211,7 @@ private:
     VocalTract tract;
     LipValve lips;
     Ambience ambience;
+    Spectrum spectrum;
     PitchTrim pitchTrim;
 
     // Note state
@@ -251,6 +263,8 @@ private:
     std::atomic<float> vPress[Bore::kSegments];
     std::atomic<float> vFlowSeg[Bore::kSegments];
     std::atomic<float> vMeanFlow { 0.0f }, vTurb { 0.0f };
+    std::atomic<float> vSpec[Spectrum::kBands];
+    std::atomic<bool>  spectrumOn { false };
 
     // Lip-trace capture: decimated so the stored window spans a few periods
     // of the drone whatever the note.

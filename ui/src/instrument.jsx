@@ -71,8 +71,13 @@ const DEFAULT_BORE = [0.0145, 0.0146, 0.0151, 0.0158, 0.0168, 0.0182, 0.0198, 0.
 const DEFAULT_TRACT = [1.44, 2.92, 3.58, 2.56, 1.72, 2.08, 3.08, 3.80];
 const ZERO16 = new Array(16).fill(0);
 const ZERO96 = new Array(96).fill(0);
+const SPEC_N = 32;
+const SPEC_FLOOR = new Array(SPEC_N).fill(-90);
 
 const N_PARTICLES = 130;
+
+/* The analyser spans the full panel behind the instrument. */
+const SPEC_X0 = 40, SPEC_X1 = 1240, SPEC_Y0 = 22, SPEC_Y1 = 286;
 
 function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMix = 0.5, wallDamp = 0.3 }) {
   const lv = JuceBridge.useEventRef('levels', {
@@ -80,6 +85,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
     f0: 73.42, toot: 199, tootActive: false, playing: false,
     bore: DEFAULT_BORE, tract: DEFAULT_TRACT,
     press: ZERO16, flowSeg: ZERO16, lipWave: ZERO96, meanFlow: 0, turb: 0,
+    spec: SPEC_FLOOR,
   });
 
   /* Params the loop reads without re-subscribing. */
@@ -90,6 +96,8 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
   const cavityRef = useRef(null);
   const innerEdgeRef = useRef(null);
   const grainRef = useRef(null);
+  const specRef = useRef(null);
+  const specLineRef = useRef(null);
   const waveRef = useRef(null);
   const waveLineRef = useRef(null);
   const nodeRef = useRef(null);
@@ -117,6 +125,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
   useEffect(() => {
     let raf = 0, last = performance.now();
     let phase = 0, level = 0, lipSm = 0, glowSm = 0, turbSm = 0;
+    const specSm = new Array(SPEC_N).fill(0);
 
     const xs = [];
     for (let i = 0; i < 16; i++) xs.push(BORE_X0 + (i / 15) * BORE_SPAN);
@@ -377,6 +386,29 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         el.setAttribute('opacity', ((1 - s) * 0.5 * glowSm).toFixed(3));
       }
 
+      /* ---- output spectrum, behind everything ----
+         Log frequency across the panel, dBFS up. Drawn as a filled curve
+         rather than bars so it reads as a backdrop and does not compete with
+         the cutaway sitting on top of it. Smoothed toward the incoming
+         levels so it settles rather than flickers between frames. */
+      const sp = (L.spec && L.spec.length === SPEC_N) ? L.spec : SPEC_FLOOR;
+      for (let i = 0; i < SPEC_N; i++) {
+        const target = Math.max(0, Math.min(1, (sp[i] + 72) / 66));
+        specSm[i] += (target - specSm[i]) * (1 - Math.exp(-dt / (target > specSm[i] ? 0.02 : 0.14)));
+      }
+      // Curved through the band centres rather than joined by straight lines:
+      // thirty-two points spread over the full width otherwise read as a
+      // zig-zag rather than a spectral envelope.
+      const spts = [];
+      for (let i = 0; i < SPEC_N; i++) {
+        spts.push([SPEC_X0 + (i / (SPEC_N - 1)) * (SPEC_X1 - SPEC_X0),
+                   SPEC_Y1 - specSm[i] * (SPEC_Y1 - SPEC_Y0)]);
+      }
+      const sl = smoothPath(spts);
+      const sd = sl + ` L ${SPEC_X1} ${SPEC_Y1} L ${SPEC_X0} ${SPEC_Y1} Z`;
+      if (specRef.current) specRef.current.setAttribute('d', sd);
+      if (specLineRef.current) specLineRef.current.setAttribute('d', sl);
+
       /* ---- readouts ---- */
       const toot = !!L.tootActive;
       if (noteRef.current) noteRef.current.textContent = hzToNote(f0);
@@ -430,6 +462,11 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
             <stop offset="0%"   stopColor="#ffb35a" stopOpacity="0.85" />
             <stop offset="100%" stopColor="#ff8a2a" stopOpacity="0" />
           </radialGradient>
+          <linearGradient id="specg" x1="0" y1="1" x2="0" y2="0">
+            <stop offset="0%"   stopColor="#ff9d3c" stopOpacity="0.02" />
+            <stop offset="70%"  stopColor="#ffb765" stopOpacity="0.14" />
+            <stop offset="100%" stopColor="#ffd9a6" stopOpacity="0.26" />
+          </linearGradient>
           <linearGradient id="tractg" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%"   stopColor="#7a4a86" />
             <stop offset="100%" stopColor="#c4657a" />
@@ -438,6 +475,26 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
             <feGaussianBlur stdDeviation="7" />
           </filter>
         </defs>
+
+        {/* output spectrum, behind the instrument */}
+        <g className="iv-spec">
+          {/* Octave marks, so the backdrop reads as an analyser rather than a
+              decorative curve. Positions follow the same log mapping the
+              bands use. */}
+          {[100, 300, 1000, 3000, 10000].map((f) => {
+            const x = SPEC_X0 + (Math.log(f / 45) / Math.log(12000 / 45)) * (SPEC_X1 - SPEC_X0);
+            return (
+              <g key={f}>
+                <line className="iv-specgrid" x1={x} y1={SPEC_Y0} x2={x} y2={SPEC_Y1} />
+                <text className="iv-specmark" x={x + 3} y={SPEC_Y1 - 3}>
+                  {f >= 1000 ? (f / 1000) + 'k' : f}
+                </text>
+              </g>
+            );
+          })}
+          <path ref={specRef} d="" />
+          <path ref={specLineRef} d="" fill="none" />
+        </g>
 
         {/* centre axis */}
         <line className="iv-axis" x1={TRACT_X0} y1={CY} x2={BORE_X1 + 22} y2={CY} />

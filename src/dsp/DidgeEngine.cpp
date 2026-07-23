@@ -183,6 +183,7 @@ void DidgeEngine::prepare (double sampleRate, int)
     tract.prepare (sampleRate);
     lips.prepare (sampleRate);
     ambience.prepare (sampleRate);
+    spectrum.prepare (sampleRate);
     pitchTrim.prepare (sampleRate);
     for (auto& a : vTract) a.store (2.0f, std::memory_order_relaxed);
     for (auto& a : vBore)  a.store (0.02f, std::memory_order_relaxed);
@@ -199,6 +200,7 @@ void DidgeEngine::reset()
     tract.clear();
     lips.reset();
     ambience.clear();
+    spectrum.reset();
     numHeld = 0;
     tootNote = -1;
     gate = false;
@@ -432,6 +434,8 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
                                                p.shape.profile));
     const float profileTrim = std::pow (10.0f, kProfileTrimDb[profIdx] / 20.0f);
 
+    const bool analyse = spectrumOn.load (std::memory_order_relaxed);
+
     const float zBore = bore.mouthImpedance();
     const float dcR = 1.0f - 6.2831853f * 18.0f / fs;
     const float tiltGain = 0.5f * (fs / 48000.0f);
@@ -617,6 +621,8 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         const float l = (mono + wet * ambL) * p.outGainLin;
         const float r = (mono + wet * ambR) * p.outGainLin;
 
+        if (analyse) spectrum.push (0.5f * (l + r));
+
         outL[n] = l;
         outR[n] = r;
         pkL = std::max (pkL, std::abs (l));
@@ -644,6 +650,9 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         vFlowSeg[i].store (bore.segmentFlow (i), std::memory_order_relaxed);
     }
     vMeanFlow.store (bore.meanFlow(), std::memory_order_relaxed);
+    if (analyse)
+        for (int i = 0; i < Spectrum::kBands; ++i)
+            vSpec[i].store (spectrum.levelDb (i), std::memory_order_relaxed);
     vTurb.store (std::min (1.5f, p.breath + 0.9f * transientEnv)
                  * (pressureEnv / kMaxLungPressure), std::memory_order_relaxed);
 

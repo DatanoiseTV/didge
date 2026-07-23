@@ -275,11 +275,16 @@ WebEditor::WebEditor (::DidgeAudioProcessor& proc)
     }
 
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot() + "index.html");
+    didgeProcessor.getEngine().setSpectrumEnabled (true);
     startHealthWatchdog();
     startTimerHz (30);
 }
 
-WebEditor::~WebEditor() = default;
+WebEditor::~WebEditor()
+{
+    // Stop the analyser costing CPU once nobody is looking at it.
+    didgeProcessor.getEngine().setSpectrumEnabled (false);
+}
 
 // ============================================================================
 class WebEditor::WebViewFallback : public juce::Component
@@ -478,6 +483,10 @@ void WebEditor::emitLevels()
         flowSeg.add (juce::var (engine.vizBoreFlow (i)));
     }
 
+    juce::Array<juce::var> spec;
+    for (int i = 0; i < didge::DidgeEngine::kSpectrumBands; ++i)
+        spec.add (juce::var (engine.vizSpectrum (i)));
+
     juce::Array<juce::var> lipWave;
     for (int i = 0; i < didge::DidgeEngine::kLipTraceLen; ++i)
         lipWave.add (juce::var (engine.vizLipTrace (i)));
@@ -496,6 +505,7 @@ void WebEditor::emitLevels()
     root->setProperty ("press",      juce::var (press));
     root->setProperty ("flowSeg",    juce::var (flowSeg));
     root->setProperty ("lipWave",    juce::var (lipWave));
+    root->setProperty ("spec",       juce::var (spec));
     root->setProperty ("meanFlow",   engine.vizMeanFlow());
     root->setProperty ("turb",       engine.vizTurbulence());
 

@@ -191,6 +191,15 @@ html, body {
    node structure by how far they swing, not by being decorative. */
 .iv-air { fill: rgba(255, 236, 208, 0.85); }
 
+/* Output spectrum, sitting behind the instrument as a backdrop. */
+.iv-specgrid { stroke: rgba(255, 220, 180, 0.055); stroke-width: 1; }
+.iv-specmark {
+  fill: rgba(140, 115, 90, 0.55); font-size: 7.5px;
+  letter-spacing: 0.1em; font-family: var(--mono);
+}
+.iv-spec path:first-child { fill: url(#specg); }
+.iv-spec path:last-child { stroke: rgba(255, 195, 130, 0.42); stroke-width: 1.2; }
+
 /* Pressure nodes — the cross-sections the standing wave is not pushing on. */
 .iv-node {
   stroke: rgba(120, 220, 255, 0.55);
