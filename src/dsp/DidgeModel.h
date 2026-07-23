@@ -410,6 +410,15 @@ public:
         return 0.5f * (a + b);
     }
 
+    // Continuous pitch bend, applied as a length change rather than a retune.
+    // The sounding pitch of a tube goes as 1/length, so scaling the delay is
+    // exact and costs nothing, where re-running the impedance solver every
+    // block would not be. Physically this is a trombone slide.
+    void setLengthScale (float scale)
+    {
+        lengthScale = std::max (0.25f, std::min (4.0f, scale));
+    }
+
     float droneFrequency() const { return tunedF0; }
     float tootFrequency()  const { return tootF; }
 
@@ -486,7 +495,7 @@ public:
     float beginStep()
     {
         // Glide delay length and junction coefficients toward their targets.
-        segLen += (segLenTarget - segLen) * lenSmooth;
+        segLen += (segLenTarget * lengthScale - segLen) * lenSmooth;
         for (int i = 0; i < kSegments - 1; ++i)
             kJunc[i] += (kTarget[i] - kJunc[i]) * juncSmooth;
 
@@ -603,7 +612,7 @@ public:
     // Snap glides (used at note-on from silence and in offline tests).
     void snapToTargets()
     {
-        segLen = segLenTarget;
+        segLen = segLenTarget * lengthScale;
         for (int i = 0; i < kSegments - 1; ++i)
             kJunc[i] = kTarget[i];
     }
@@ -762,7 +771,7 @@ private:
     float uMean = 0.0f;
     float envAttack = 0.02f, envRelease = 0.0015f;
 
-    float segLen = 8.0f, segLenTarget = 8.0f;
+    float segLen = 8.0f, segLenTarget = 8.0f, lengthScale = 1.0f;
     float gSeg = 0.999f;
     float bellLpCoeff = 0.1f, bellLpState = 0.0f;
     float lenSmooth = 0.01f, juncSmooth = 0.01f;

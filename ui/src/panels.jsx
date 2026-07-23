@@ -47,6 +47,11 @@ function EmbouchurePanel() {
         <PKnob id="lipDamp" />
         <PKnob id="embouchure" />
       </div>
+      <div className="krow">
+        <PKnob id="bendRange" alt bipolar={false} />
+        <div className="knob spacer-knob" />
+        <div className="knob spacer-knob" />
+      </div>
       <div className="bars">
         <LiveBar field="lipOpen" full={0.004} label="Aperture" unit=" mm" scale={1000} digits={2} />
         <LiveBar field="flow" full={0.001} label="Flow" unit=" L/s" scale={1000} digits={2} />

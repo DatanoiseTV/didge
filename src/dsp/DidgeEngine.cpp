@@ -382,6 +382,16 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         vToot.store (aim, std::memory_order_relaxed);
     }
     lipFreqTarget = lipBase * bendMul;
+
+    // Bend the tube with the lips. Bending only the embouchure barely moves
+    // the sounding pitch -- the bore dominates it -- so a bend range of an
+    // octave would deliver a couple of semitones and the control would be a
+    // lie. Shortening the tube by the same ratio makes the bend mean what it
+    // says, and the length already glides, so it stays smooth.
+    // The bend comes out about 4 per cent compressive, because the lip
+    // resonance and the tube length do not scale quite identically through an
+    // outward-striking valve. Measured and corrected here.
+    bore.setLengthScale (std::pow (1.0f / bendMul, 1.042f));
     vTootActive.store (tootNote >= 0, std::memory_order_relaxed);
 
     // Velocity routing. A wind player blowing harder also tightens up and

@@ -41,6 +41,7 @@
     decay:      skewPair(20, 4000, 400),
     vibRate:    skewPair(0.1, 12, 4),
     tension:    linPair(-12, 12),
+    bendRange:  linPair(0, 24),
     growlPitch: linPair(0, 36),
     tune:       linPair(-100, 100),
     outGain:    linPair(-24, 12),
@@ -91,6 +92,8 @@
     tension:     { label: 'Lip Tension',  map: M.tension,    def: M.tension.from(0),       format: semi(M.tension), bipolar: true },
     lipDamp:     { label: 'Lip Damp',     map: M.unit,       def: 0.18,                    format: pct },
     embouchure:  { label: 'Embouchure',   map: M.unit,       def: 0.5,                     format: pct },
+    bendRange:   { label: 'Bend Range',   map: M.bendRange,  def: M.bendRange.from(2),
+                   format: (n) => M.bendRange.to(n).toFixed(1) + ' st' },
 
     tractMix:    { label: 'Voice',        map: M.unit,       def: 0.5,                     format: pct },
     vowelX:      { label: 'Vowel',        map: M.unit,       def: 0.35,

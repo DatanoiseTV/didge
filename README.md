@@ -52,7 +52,7 @@ the result of simulating air:
 | --- | --- |
 | Hold a note | The bore retunes and drones on it |
 | Hold a second, much higher note | Overblows into the toot register; the embouchure firms automatically |
-| Pitch bend | Bends the lips, not the tube |
+| Pitch bend | Bends the lips and the tube together, over a settable range up to two octaves |
 | CC2 / CC11 | Breath and expression scale the blowing pressure |
 | Vowel / Mouth Open | Moves the tongue, colouring the drone |
 | Growl | Voiced modulation, as if humming while blowing |

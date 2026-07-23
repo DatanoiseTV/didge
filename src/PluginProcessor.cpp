@@ -103,8 +103,11 @@ void DidgeAudioProcessor::collectEvents (juce::MidiBuffer& midi)
         else if (m.isAllNotesOff() || m.isAllSoundOff())
             events.push_back ({ t, didge::NoteEvent::allNotesOff, 0, 0.0f });
         else if (m.isPitchWheel())
-            // +/- 2 semitones, the near-universal default bend range.
-            engine.setPitchBend ((m.getPitchWheelValue() - 8192) / 8192.0f * 2.0f);
+        {
+            const float range = apvts.getRawParameterValue (didge::ids::bendRange)
+                                     ->load (std::memory_order_relaxed);
+            engine.setPitchBend ((m.getPitchWheelValue() - 8192) / 8192.0f * range);
+        }
         else if (m.isController())
         {
             // CC2 (breath) and CC11 (expression) scale the blowing pressure —

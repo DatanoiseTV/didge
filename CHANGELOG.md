@@ -33,8 +33,10 @@ All notable changes to Didge are documented here. The format follows
   band until the note is in tune. Settles within a couple of cents.
 - Overblowing: a second, much higher held note selects the toot register and
   firms the embouchure automatically.
-- MIDI: note on/off, pitch bend on the lips, CC2/CC11 breath and expression on
-  the blowing pressure.
+- MIDI: note on/off, pitch bend, CC2/CC11 breath and expression on the blowing
+  pressure. Bend range is settable from zero to two octaves, and the bend
+  shortens the tube as well as the lips -- bending the embouchure alone barely
+  moves the sounding pitch, since the bore decides it.
 - WebView UI with a live cutaway of the instrument driven by the engine's own
   bore profile and vocal tract, plus breath, embouchure, voice, instrument and
   space panels.

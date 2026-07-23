@@ -99,7 +99,7 @@ namespace
     constexpr const char* kFloatIds[] = {
         "pressure", "attack", "release", "vibRate", "vibDepth", "breathNoise",
         "decay", "sustain", "velAmount",
-        "tension", "lipDamp", "embouchure",
+        "tension", "lipDamp", "embouchure", "bendRange",
         "tractMix", "vowelX", "vowelY", "growl", "growlPitch",
         "tune", "bell", "flare", "texture", "wallDamp",
         "spaceMix", "spaceSize", "outGain",

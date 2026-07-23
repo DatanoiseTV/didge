@@ -45,6 +45,7 @@ namespace didge::ids
     inline constexpr const char* tension    = "tension";     // semitones
     inline constexpr const char* lipDamp    = "lipDamp";     // 0..1
     inline constexpr const char* embouchure = "embouchure";  // 0..1
+    inline constexpr const char* bendRange  = "bendRange";   // semitones
 
     // Voice (vocal tract)
     inline constexpr const char* tractMix   = "tractMix";    // 0..1
@@ -147,6 +148,12 @@ namespace didge::ids
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.18f, attrs (pct)));
         add (std::make_unique<P> (juce::ParameterID { embouchure, 1 }, "Embouchure",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.5f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { bendRange, 1 }, "Bend Range",
+                                  Rng { 0.0f, 24.0f, 0.5f }, 2.0f,
+                                  attrs ([] (float v, int)
+                                  {
+                                      return juce::String (v, 1) + (v == 1.0f ? " st" : " st");
+                                  })));
 
         // ---- Voice ----------------------------------------------------------
         add (std::make_unique<P> (juce::ParameterID { tractMix, 1 }, "Voice Amount",

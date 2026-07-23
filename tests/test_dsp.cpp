@@ -446,6 +446,64 @@ static void testVelocityRouting()
 }
 
 // ---------------------------------------------------------------------------
+// Pitch bend must actually bend the pitch, over a wide range.
+//
+// Bending the embouchure alone barely moves the sounding note, because the
+// bore decides it; the bend therefore scales the tube as well, and this checks
+// that a requested interval really arrives. The tolerance widens with the
+// interval, since the lip resonance and the tube do not scale identically
+// through an outward-striking valve.
+// ---------------------------------------------------------------------------
+static void testPitchBend()
+{
+    auto soundedAfterBend = [] (float semis)
+    {
+        EngineParams p;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        std::vector<float> L (256), R (256), out;
+        const int blocks = (int) (5.0 * kFs / 256);
+        for (int i = 0; i < blocks; ++i)
+        {
+            if (i == (int) (2.0 * kFs / 256)) e.setPitchBend (semis);
+            NoteEvent ev { 0, NoteEvent::noteOn, 38, 0.8f };
+            e.process (L.data(), R.data(), 256, p, i == 0 ? &ev : nullptr, i == 0 ? 1 : 0);
+            for (int j = 0; j < 256; ++j) out.push_back (0.5f * (L[j] + R[j]));
+        }
+        // Search a narrow window around the expected pitch. The general
+        // estimator sweeps [0.5, 2] x hint, and in this bore the second
+        // harmonic stands 7 dB above the fundamental, so it can settle an
+        // octave high. The window here is +/-35%, far wider than the
+        // tolerance being asserted, so it cannot manufacture a pass.
+        const float want = noteHz (38) * std::pow (2.0f, semis / 12.0f);
+        float bestF = want;
+        double bestE = -1e300;
+        for (int i = 0; i <= 700; ++i)
+        {
+            const float f = want * (0.65f + 0.70f * (float) i / 700.0f);
+            double e = 0.0;
+            for (int h = 1; h <= 5; ++h)
+                e += std::pow (10.0, goertzelDb (out, f * h, 4.0f, 5.0f) / 10.0);
+            if (e > bestE) { bestE = e; bestF = f; }
+        }
+        return bestF;
+    };
+
+    const float base = noteHz (38);
+    for (float semis : { -12.0f, -7.0f, -2.0f, 2.0f, 7.0f, 12.0f })
+    {
+        const float got = soundedAfterBend (semis);
+        const float cents = 1200.0f * std::log2 (got / base);
+        const float err = cents - semis * 100.0f;
+        // Allow a tenth of the requested interval, and at least 30 cents.
+        const float tol = std::max (30.0f, std::abs (semis) * 10.0f);
+        CHECK (std::abs (err) < tol,
+               "bend of %+.0f st sounded %+.0f cents, off by %+.0f (tolerance %.0f)",
+               semis, cents, err, tol);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Silence: with no breath there is no energy source, so the model must fall
 // genuinely silent rather than settle into a low-level limit cycle.
 // ---------------------------------------------------------------------------
@@ -651,6 +709,7 @@ int main()
     testTootRegister();
     testDecayStage();
     testVelocityRouting();
+    testPitchBend();
     testReleaseToSilence();
     testBoreProfiles();
     testMaterials();
