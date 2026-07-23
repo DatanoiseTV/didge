@@ -263,19 +263,24 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
            greatest, and vanishes at the open end. The oscillation modulates
            about a floor rather than passing through zero, so the shape reads
            at every instant instead of strobing against the frame rate. */
-        const swing = (0.42 + 0.58 * Math.abs(cosP)) * damp * (0.3 + 0.7 * level);
-        const amp = Math.min (hAt(u) - 2, 110 * env * swing) + 1.0;
+        // Scaled by the breath with no floor under it. The envelope arriving
+        // from the engine is normalised to its own maximum, so it keeps its
+        // full shape however quiet the instrument is; only `level` knows
+        // whether anything is actually sounding. A floor here drew a standing
+        // wave in a silent tube.
+        const swing = (0.42 + 0.58 * Math.abs(cosP)) * damp * level;
+        const amp = Math.min (hAt(u) - 2, 110 * env * swing) + level;
         top.push([x, CY - amp]);
         bot.push([x, CY + amp]);
       }
       const wd = smoothPath(top) + smoothPath(bot.slice().reverse(), false) + ' Z';
       if (waveRef.current) {
         waveRef.current.setAttribute('d', wd);
-        waveRef.current.setAttribute('opacity', (0.30 + 0.55 * level).toFixed(3));
+        waveRef.current.setAttribute('opacity', (0.85 * level).toFixed(3));
       }
       if (waveLineRef.current) {
         waveLineRef.current.setAttribute('d', smoothPath(top));
-        waveLineRef.current.setAttribute('opacity', (0.25 + 0.65 * level).toFixed(3));
+        waveLineRef.current.setAttribute('opacity', (0.9 * level).toFixed(3));
       }
 
       /* Pressure nodes: where the measured envelope dips to a local minimum.
@@ -299,12 +304,17 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
          therefore moved by the local flow envelope (large at a flow antinode,
          nil at a node) in quadrature with the pressure, plus a slow drift
          toward the bell. Watching them makes the node structure legible in a
-         way the envelope alone does not. */
-      const drift = Math.max(0, Number(L.meanFlow) || 0);
+         way the envelope alone does not.
+
+         Every term is the measured flow, with no constant under it: no breath
+         means no flow, so the parcels neither drift nor swing nor show. A
+         baseline drift used to sit in front of the measured one, which left
+         air visibly moving through a tube nobody was blowing. */
+      const drift = Math.max(0, Number(L.meanFlow) || 0) * level;
       let ad = '';
       for (let i = 0; i < N_PARTICLES; i++) {
         const p = air[i];
-        p.u += dt * (0.045 + 9000 * drift) * (0.6 + 0.8 * p.jitter);
+        p.u += dt * 9000.0 * drift * (0.6 + 0.8 * p.jitter);
         if (p.u > 1) p.u -= 1;
 
         const uLocal = at(flowSeg, p.u) / uMax;
@@ -314,12 +324,12 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         const x = BORE_X0 + ux * BORE_SPAN;
         const h = hAt(ux) - 3;
         const y = CY + p.lat * h * 0.86;
-        const r = (0.9 + 2.0 * uLocal * level).toFixed(2);
+        const r = (level * (0.5 + 2.1 * uLocal)).toFixed(2);
         ad += `M ${(x - Number(r)).toFixed(1)} ${y.toFixed(1)} a ${r} ${r} 0 1 0 ${(2 * Number(r)).toFixed(2)} 0 a ${r} ${r} 0 1 0 ${(-2 * Number(r)).toFixed(2)} 0 `;
       }
       if (airRef.current) {
         airRef.current.setAttribute('d', ad);
-        airRef.current.setAttribute('opacity', (0.25 + 0.6 * level).toFixed(3));
+        airRef.current.setAttribute('opacity', (0.85 * level).toFixed(3));
       }
 
       /* ---- lips ----
@@ -333,7 +343,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
       const lipNow = lw[idx] / lwMax;
 
       lipSm += (lipNow - lipSm) * (1 - Math.exp(-dt / 0.012));
-      const gap = 1.5 + lipSm * 22 * Math.max(0.25, level);
+      const gap = 1.5 + lipSm * 22 * level;
       const LIP_H = 40;
       if (lipUpRef.current) {
         lipUpRef.current.setAttribute('y', (CY - LIP_H).toFixed(1));

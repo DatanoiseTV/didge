@@ -186,7 +186,10 @@
       }
 
       const vibHz = M.vibRate.to(g('vibRate'));
-      const phrase = 0.72 + 0.28 * Math.sin(t * 0.6);
+      /* Phrased with real gaps, so the display can be checked for what it
+         does when nothing is sounding as well as when something is. */
+      const gate = (t % 9) < 6 ? 1 : 0;
+      const phrase = gate * (0.72 + 0.28 * Math.sin(t * 0.6));
       const vib = 1 + g('vibDepth') * 0.35 * Math.sin(2 * Math.PI * vibHz * t);
       const growl = 1 - g('growl') * 0.5 * Math.abs(Math.sin(2 * Math.PI * 3.5 * t));
       const env = clamp(g('pressure') * phrase * vib * growl, 0, 1);
