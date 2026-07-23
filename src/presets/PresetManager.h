@@ -1,5 +1,5 @@
 /*
-  Qube — quadraphonic spatial panner
+  Didge — physically modeled didgeridoo
   Copyright (C) 2026 DatanoiseTV
 
   This program is free software: you can redistribute it and/or modify it under

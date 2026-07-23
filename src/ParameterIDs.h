@@ -1,5 +1,5 @@
 /*
-  Qube — quadraphonic spatial panner
+  Didge — physically modeled didgeridoo
   Copyright (C) 2026 DatanoiseTV
 
   This program is free software: you can redistribute it and/or modify it under
@@ -17,133 +17,130 @@
 // Single source of truth for parameter IDs. The WebEditor re-quotes these on
 // the JS side (PARAM ids in the relays); keep both in sync — a typo becomes
 // a dead control, not a compile error, on the JS side.
-namespace qube::ids
+namespace didge::ids
 {
-    // Position
-    inline constexpr const char* posX         = "posX";          // -1..+1  (left..right)
-    inline constexpr const char* posY         = "posY";          // -1..+1  (back..front)
-    inline constexpr const char* spread       = "spread";        // 0..1    source width
-    inline constexpr const char* rotate       = "rotate";        // -180..180 degrees, scene rotation
+    // Breath
+    inline constexpr const char* pressure   = "pressure";    // 0..1
+    inline constexpr const char* attack     = "attack";      // ms
+    inline constexpr const char* release    = "release";     // ms
+    inline constexpr const char* vibRate    = "vibRate";     // Hz
+    inline constexpr const char* vibDepth   = "vibDepth";    // 0..1
+    inline constexpr const char* breathNoise= "breathNoise"; // 0..1
 
-    // Motion engine
-    inline constexpr const char* motionMode   = "motionMode";    // choice
-    inline constexpr const char* motionRate   = "motionRate";    // Hz, free-running
-    inline constexpr const char* motionSync   = "motionSync";    // bool
-    inline constexpr const char* motionDiv    = "motionDiv";     // choice, musical division
-    inline constexpr const char* motionRadius = "motionRadius";  // 0..1 path size
-    inline constexpr const char* motionPhase  = "motionPhase";   // 0..360 degrees
-    inline constexpr const char* motionReverse= "motionReverse"; // bool
+    // Embouchure
+    inline constexpr const char* tension    = "tension";     // semitones
+    inline constexpr const char* lipDamp    = "lipDamp";     // 0..1
+    inline constexpr const char* embouchure = "embouchure";  // 0..1
 
-    // Distance & room
-    inline constexpr const char* distAmount   = "distAmount";    // 0..1 distance attenuation
-    inline constexpr const char* airAbsorb    = "airAbsorb";     // 0..1 distance LPF
-    inline constexpr const char* doppler      = "doppler";       // 0..1
-    inline constexpr const char* roomMix      = "roomMix";       // 0..1
-    inline constexpr const char* roomSize     = "roomSize";      // 0..1
-    inline constexpr const char* roomDamp     = "roomDamp";      // 0..1
+    // Voice (vocal tract)
+    inline constexpr const char* tractMix   = "tractMix";    // 0..1
+    inline constexpr const char* vowelX     = "vowelX";      // 0..1  u-o-a-e-i
+    inline constexpr const char* vowelY     = "vowelY";      // 0..1  closed-open
+    inline constexpr const char* growl      = "growl";       // 0..1
+    inline constexpr const char* growlPitch = "growlPitch";  // semitones above drone
+
+    // Instrument (bore)
+    inline constexpr const char* tune       = "tune";        // cents
+    inline constexpr const char* bell       = "bell";        // 0..1
+    inline constexpr const char* flare      = "flare";       // 0..1
+    inline constexpr const char* texture    = "texture";     // 0..1
+    inline constexpr const char* wallDamp   = "wallDamp";    // 0..1
 
     // Output
-    inline constexpr const char* outputMode   = "outputMode";    // choice
-    inline constexpr const char* masterGain   = "masterGain";    // dB
-
-    // Choice option lists. Shared between the APVTS layout and the engine's
-    // interpretation of the stored index; the UI mirrors the same strings.
-    inline const juce::StringArray motionModeNames {
-        "Manual", "Orbit", "Figure 8", "Pendulum", "Bounce", "Random"
-    };
-    inline const juce::StringArray motionDivNames {
-        "8 bars", "4 bars", "2 bars", "1 bar", "1/2", "1/2T", "1/4", "1/4T", "1/8", "1/8T", "1/16"
-    };
-    // Beats per full motion cycle for each motionDiv entry (4/4 assumed for
-    // "bar" entries — the host meter isn't consulted; this matches how most
-    // delay plugins treat bar syncs).
-    inline constexpr double motionDivBeats[] = {
-        32.0, 16.0, 8.0, 4.0, 2.0, 4.0 / 3.0, 1.0, 2.0 / 3.0, 0.5, 1.0 / 3.0, 0.25
-    };
-    inline const juce::StringArray outputModeNames {
-        "Auto", "Quad", "Binaural", "Stereo UHJ", "Stereo Mix"
-    };
-
-    enum class MotionMode { manual = 0, orbit, figure8, pendulum, bounce, random };
-    enum class OutputMode { autoDetect = 0, quad, binaural, uhj, stereoMix };
+    inline constexpr const char* spaceMix   = "spaceMix";    // 0..1
+    inline constexpr const char* spaceSize  = "spaceSize";   // 0..1
+    inline constexpr const char* outGain    = "outGain";     // dB
 
     inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using P  = juce::AudioParameterFloat;
-        using Pb = juce::AudioParameterBool;
-        using Pc = juce::AudioParameterChoice;
         using Rng = juce::NormalisableRange<float>;
 
         std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
         auto add = [&params] (auto p) { params.push_back (std::move (p)); };
 
         auto pct = [] (float v, int) { return juce::String (juce::roundToInt (v * 100.0f)) + "%"; };
-
-        // Position. Defaults put the source front-centre, slightly into the room.
-        add (std::make_unique<P> (juce::ParameterID { posX, 1 }, "Position X",
-                                  Rng { -1.0f, 1.0f, 0.0f }, 0.0f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (
-                                      [] (float v, int) { return juce::String (v, 2); })));
-        add (std::make_unique<P> (juce::ParameterID { posY, 1 }, "Position Y",
-                                  Rng { -1.0f, 1.0f, 0.0f }, 0.5f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (
-                                      [] (float v, int) { return juce::String (v, 2); })));
-        add (std::make_unique<P> (juce::ParameterID { spread, 1 }, "Spread",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.15f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
-        add (std::make_unique<P> (juce::ParameterID { rotate, 1 }, "Rotate",
-                                  Rng { -180.0f, 180.0f, 1.0f }, 0.0f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (
-                                      [] (float v, int) { return juce::String (juce::roundToInt (v)) + juce::String::fromUTF8 ("\xc2\xb0"); })));
-
-        // Motion
-        add (std::make_unique<Pc> (juce::ParameterID { motionMode, 1 }, "Motion", motionModeNames, 0));
+        auto attrs = [] (auto fn)
         {
-            Rng rateRange { 0.02f, 8.0f };
-            rateRange.setSkewForCentre (0.5f);
-            add (std::make_unique<P> (juce::ParameterID { motionRate, 1 }, "Motion Rate",
-                                      rateRange, 0.25f,
-                                      juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (
-                                          [] (float v, int) { return juce::String (v, 2) + " Hz"; })));
+            return juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (fn);
+        };
+
+        // ---- Breath ---------------------------------------------------------
+        add (std::make_unique<P> (juce::ParameterID { pressure, 1 }, "Breath",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.62f, attrs (pct)));
+        {
+            Rng r { 1.0f, 500.0f };
+            r.setSkewForCentre (60.0f);
+            add (std::make_unique<P> (juce::ParameterID { attack, 1 }, "Attack", r, 40.0f,
+                                      attrs ([] (float v, int) { return juce::String (juce::roundToInt (v)) + " ms"; })));
         }
-        add (std::make_unique<Pb> (juce::ParameterID { motionSync, 1 }, "Motion Sync", false));
-        add (std::make_unique<Pc> (juce::ParameterID { motionDiv, 1 }, "Motion Division", motionDivNames, 3));
-        add (std::make_unique<P>  (juce::ParameterID { motionRadius, 1 }, "Motion Radius",
-                                   Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
-                                   juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
-        add (std::make_unique<P>  (juce::ParameterID { motionPhase, 1 }, "Motion Phase",
-                                   Rng { 0.0f, 360.0f, 1.0f }, 0.0f,
-                                   juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (
-                                       [] (float v, int) { return juce::String (juce::roundToInt (v)) + juce::String::fromUTF8 ("\xc2\xb0"); })));
-        add (std::make_unique<Pb> (juce::ParameterID { motionReverse, 1 }, "Motion Reverse", false));
+        {
+            Rng r { 5.0f, 2000.0f };
+            r.setSkewForCentre (200.0f);
+            add (std::make_unique<P> (juce::ParameterID { release, 1 }, "Release", r, 140.0f,
+                                      attrs ([] (float v, int) { return juce::String (juce::roundToInt (v)) + " ms"; })));
+        }
+        {
+            Rng r { 0.1f, 12.0f };
+            r.setSkewForCentre (4.0f);
+            add (std::make_unique<P> (juce::ParameterID { vibRate, 1 }, "Vibrato Rate", r, 4.5f,
+                                      attrs ([] (float v, int) { return juce::String (v, 2) + " Hz"; })));
+        }
+        add (std::make_unique<P> (juce::ParameterID { vibDepth, 1 }, "Vibrato Depth",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.0f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { breathNoise, 1 }, "Breath Noise",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.25f, attrs (pct)));
 
-        // Distance & room
-        add (std::make_unique<P> (juce::ParameterID { distAmount, 1 }, "Distance",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
-        add (std::make_unique<P> (juce::ParameterID { airAbsorb, 1 }, "Air Absorb",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
-        add (std::make_unique<P> (juce::ParameterID { doppler, 1 }, "Doppler",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.0f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
-        add (std::make_unique<P> (juce::ParameterID { roomMix, 1 }, "Room Mix",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.25f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
-        add (std::make_unique<P> (juce::ParameterID { roomSize, 1 }, "Room Size",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
-        add (std::make_unique<P> (juce::ParameterID { roomDamp, 1 }, "Room Damp",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
-                                  juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (pct)));
+        // ---- Embouchure -----------------------------------------------------
+        add (std::make_unique<P> (juce::ParameterID { tension, 1 }, "Lip Tension",
+                                  Rng { -12.0f, 12.0f, 0.01f }, 0.0f,
+                                  attrs ([] (float v, int) { return juce::String (v, 2) + " st"; })));
+        add (std::make_unique<P> (juce::ParameterID { lipDamp, 1 }, "Lip Damping",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.18f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { embouchure, 1 }, "Embouchure",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f, attrs (pct)));
 
-        // Output
-        add (std::make_unique<Pc> (juce::ParameterID { outputMode, 1 }, "Output Mode", outputModeNames, 0));
-        add (std::make_unique<P>  (juce::ParameterID { masterGain, 1 }, "Master Gain",
-                                   Rng { -24.0f, 12.0f, 0.1f }, 0.0f,
-                                   juce::AudioParameterFloatAttributes{}.withStringFromValueFunction (
-                                       [] (float v, int) { return juce::String (v, 1) + " dB"; })));
+        // ---- Voice ----------------------------------------------------------
+        add (std::make_unique<P> (juce::ParameterID { tractMix, 1 }, "Voice Amount",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { vowelX, 1 }, "Vowel",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.35f,
+                                  attrs ([] (float v, int)
+                                  {
+                                      static const char* names[] = { "oo", "oh", "ah", "eh", "ee" };
+                                      const int i = juce::jlimit (0, 4, juce::roundToInt (v * 4.0f));
+                                      return juce::String (names[i]);
+                                  })));
+        add (std::make_unique<P> (juce::ParameterID { vowelY, 1 }, "Mouth Open",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { growl, 1 }, "Growl",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.0f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { growlPitch, 1 }, "Growl Pitch",
+                                  Rng { 0.0f, 36.0f, 0.1f }, 19.0f,
+                                  attrs ([] (float v, int) { return juce::String (v, 1) + " st"; })));
+
+        // ---- Instrument -----------------------------------------------------
+        add (std::make_unique<P> (juce::ParameterID { tune, 1 }, "Tune",
+                                  Rng { -100.0f, 100.0f, 0.1f }, 0.0f,
+                                  attrs ([] (float v, int) { return juce::String (v, 1) + " ct"; })));
+        add (std::make_unique<P> (juce::ParameterID { bell, 1 }, "Bell",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.4f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { flare, 1 }, "Flare",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { texture, 1 }, "Wall Texture",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { wallDamp, 1 }, "Wall Damping",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
+
+        // ---- Output ---------------------------------------------------------
+        add (std::make_unique<P> (juce::ParameterID { spaceMix, 1 }, "Space",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.18f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { spaceSize, 1 }, "Space Size",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.4f, attrs (pct)));
+        add (std::make_unique<P> (juce::ParameterID { outGain, 1 }, "Output",
+                                  Rng { -24.0f, 12.0f, 0.1f }, 0.0f,
+                                  attrs ([] (float v, int) { return juce::String (v, 1) + " dB"; })));
 
         return { params.begin(), params.end() };
     }
-} // namespace qube::ids
+} // namespace didge::ids

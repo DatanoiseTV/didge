@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(Qube VERSION 0.1.0 LANGUAGES C CXX)
+project(Didge VERSION 0.1.0 LANGUAGES C CXX)
 
 # -----------------------------------------------------------------------------
 # Project-wide settings
@@ -28,16 +28,16 @@ endif()
 # Version / build identity baked into the binary.
 # -----------------------------------------------------------------------------
 find_package(Git QUIET)
-set(QUBE_GIT_HASH "unknown")
-set(QUBE_GIT_BRANCH "unknown")
+set(DIDGE_GIT_HASH "unknown")
+set(DIDGE_GIT_BRANCH "unknown")
 if(GIT_FOUND)
     execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        OUTPUT_VARIABLE QUBE_GIT_HASH OUTPUT_STRIP_TRAILING_WHITESPACE
+        OUTPUT_VARIABLE DIDGE_GIT_HASH OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
     execute_process(COMMAND ${GIT_EXECUTABLE} rev-parse --abbrev-ref HEAD
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-        OUTPUT_VARIABLE QUBE_GIT_BRANCH OUTPUT_STRIP_TRAILING_WHITESPACE
+        OUTPUT_VARIABLE DIDGE_GIT_BRANCH OUTPUT_STRIP_TRAILING_WHITESPACE
         ERROR_QUIET)
 endif()
 
@@ -52,40 +52,40 @@ add_subdirectory(external/JUCE)
 add_subdirectory(external/clap-juce-extensions EXCLUDE_FROM_ALL)
 
 # Local-install copy is on by default for developer iteration; CI builds set
-# -DQUBE_INSTALL_LOCAL=OFF so they don't try to write into the user's
+# -DDIDGE_INSTALL_LOCAL=OFF so they don't try to write into the user's
 # plug-in directories.
-option(QUBE_INSTALL_LOCAL "Copy built plugins into the user's plug-in dirs" ON)
+option(DIDGE_INSTALL_LOCAL "Copy built plugins into the user's plug-in dirs" ON)
 
-juce_add_plugin(Qube
+juce_add_plugin(Didge
     COMPANY_NAME            "DatanoiseTV"
-    BUNDLE_ID               "com.datanoisetv.qube"
+    BUNDLE_ID               "com.datanoisetv.didge"
     PLUGIN_MANUFACTURER_CODE Dnse
-    PLUGIN_CODE             Qube
+    PLUGIN_CODE             Ddge
     FORMATS                 AU VST3 Standalone
-    PRODUCT_NAME            "Qube"
-    DESCRIPTION             "Quadraphonic spatial panner"
-    IS_SYNTH                FALSE
-    NEEDS_MIDI_INPUT        FALSE
+    PRODUCT_NAME            "Didge"
+    DESCRIPTION             "Physically modeled didgeridoo"
+    IS_SYNTH                TRUE
+    NEEDS_MIDI_INPUT        TRUE
     NEEDS_MIDI_OUTPUT       FALSE
     IS_MIDI_EFFECT          FALSE
     EDITOR_WANTS_KEYBOARD_FOCUS FALSE
     NEEDS_WEB_BROWSER       TRUE   # pulls webkit2gtk + gtk pkg-config on Linux
     NEEDS_WEBVIEW2          TRUE   # Windows: statically link the WebView2 loader
-    COPY_PLUGIN_AFTER_BUILD ${QUBE_INSTALL_LOCAL}
-    VST3_CATEGORIES         Fx Spatial Surround
-    AU_MAIN_TYPE            kAudioUnitType_Effect)
+    COPY_PLUGIN_AFTER_BUILD ${DIDGE_INSTALL_LOCAL}
+    VST3_CATEGORIES         Instrument Synth
+    AU_MAIN_TYPE            kAudioUnitType_MusicDevice)
 
-juce_generate_juce_header(Qube)
+juce_generate_juce_header(Didge)
 
 # -----------------------------------------------------------------------------
-# CLAP wrapper — builds Qube.clap from the same shared plugin code. Creates a
-# `Qube_CLAP` target (NOT part of Qube_All, so build it explicitly).
+# CLAP wrapper — builds Didge.clap from the same shared plugin code. Creates a
+# `Didge_CLAP` target (NOT part of Didge_All, so build it explicitly).
 # -----------------------------------------------------------------------------
-clap_juce_extensions_plugin(TARGET Qube
-    CLAP_ID              "com.datanoisetv.qube"
-    CLAP_FEATURES        audio-effect surround "spatial"
-    CLAP_MANUAL_URL      "https://github.com/DatanoiseTV/qube"
-    CLAP_SUPPORT_URL     "https://github.com/DatanoiseTV/qube/issues")
+clap_juce_extensions_plugin(TARGET Didge
+    CLAP_ID              "com.datanoisetv.didge"
+    CLAP_FEATURES        instrument synthesizer "physical-modeling"
+    CLAP_MANUAL_URL      "https://github.com/DatanoiseTV/didge"
+    CLAP_SUPPORT_URL     "https://github.com/DatanoiseTV/didge/issues")
 
 # -----------------------------------------------------------------------------
 # UI assets — index.html / CSS / JSX / vendored React + Babel-standalone +
@@ -94,27 +94,27 @@ clap_juce_extensions_plugin(TARGET Qube
 # plugin never reaches the network. The vendored React UMDs and
 # babel-standalone are MIT-licensed.
 # -----------------------------------------------------------------------------
-file(GLOB QUBE_UI_SRC    CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ui/src/*")
-file(GLOB QUBE_UI_VENDOR CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ui/vendor/*")
-juce_add_binary_data(QubeUI
-    SOURCES     ${QUBE_UI_SRC} ${QUBE_UI_VENDOR}
-    NAMESPACE   QubeUIData
-    HEADER_NAME QubeUIData.h)
-set_target_properties(QubeUI PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
+file(GLOB DIDGE_UI_SRC    CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ui/src/*")
+file(GLOB DIDGE_UI_VENDOR CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/ui/vendor/*")
+juce_add_binary_data(DidgeUI
+    SOURCES     ${DIDGE_UI_SRC} ${DIDGE_UI_VENDOR}
+    NAMESPACE   DidgeUIData
+    HEADER_NAME DidgeUIData.h)
+set_target_properties(DidgeUI PROPERTIES POSITION_INDEPENDENT_CODE TRUE)
 
 # -----------------------------------------------------------------------------
 # Sources
 # -----------------------------------------------------------------------------
-target_sources(Qube PRIVATE
+target_sources(Didge PRIVATE
     src/PluginProcessor.cpp
-    src/dsp/SpatialEngine.cpp
+    src/dsp/DidgeEngine.cpp
     src/presets/PresetManager.cpp
     src/ui/WebEditor.cpp)
 
-target_include_directories(Qube PRIVATE
+target_include_directories(Didge PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-target_compile_definitions(Qube
+target_compile_definitions(Didge
     PUBLIC
         JUCE_WEB_BROWSER=1
         JUCE_USE_CURL=0
@@ -125,12 +125,12 @@ target_compile_definitions(Qube
         # the legacy IE backend, which has no resource provider.
         $<$<PLATFORM_ID:Windows>:JUCE_USE_WIN_WEBVIEW2_WITH_STATIC_LINKING=1>
     PRIVATE
-        QUBE_VERSION="${PROJECT_VERSION}"
-        QUBE_GIT_HASH="${QUBE_GIT_HASH}"
-        QUBE_GIT_BRANCH="${QUBE_GIT_BRANCH}")
+        DIDGE_VERSION="${PROJECT_VERSION}"
+        DIDGE_GIT_HASH="${DIDGE_GIT_HASH}"
+        DIDGE_GIT_BRANCH="${DIDGE_GIT_BRANCH}")
 
-target_link_libraries(Qube PRIVATE
-    QubeUI
+target_link_libraries(Didge PRIVATE
+    DidgeUI
     juce::juce_audio_utils
     juce::juce_dsp
     juce::juce_gui_extra

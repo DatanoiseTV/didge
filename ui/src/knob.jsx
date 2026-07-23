@@ -1,5 +1,5 @@
 /* ============================================================
-   QUBE · interactive atoms — Knob, Chip, Seg, Meter
+   Didge · interactive atoms — Knob, PKnob, PHead, meters
    ============================================================ */
 
 /* ---- geometry helpers ---- */
@@ -16,14 +16,35 @@ function arcPath(cx, cy, r, a0, a1) {
 
 const A0 = -135, A1 = 135, SWEEP = A1 - A0;
 
+/* Shared vertical-drag gesture: 240 px covers the full 0..1 range, shift
+   quarters the rate for fine trims. Used by Knob and by the draggable
+   zones on the instrument cutaway so both feel identical. */
+function beginVerticalDrag(e, startValue, onChange, onEnd) {
+  e.preventDefault();
+  const pt = e.touches ? e.touches[0] : e;
+  const y0 = pt.clientY;
+  const move = (ev) => {
+    const p = ev.touches ? ev.touches[0] : ev;
+    const fine = ev.shiftKey ? 0.25 : 1;
+    const dv = (y0 - p.clientY) / 240 * fine;
+    onChange && onChange(Math.max(0, Math.min(1, startValue + dv)));
+  };
+  const up = () => {
+    onEnd && onEnd();
+    window.removeEventListener('pointermove', move);
+    window.removeEventListener('pointerup', up);
+  };
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', up);
+}
+
 /* ---- Knob ----
    value is normalised 0..1; format converts normalised -> display string.
-   bipolar draws the arc from the top-centre. */
-function Knob({ value = 0.5, onChange, size = 'md', label, format, bipolar = false, violet = false, defaultValue = 0.5 }) {
+   bipolar draws the arc out from top-centre. */
+function Knob({ value = 0.5, onChange, size = 'md', label, format, bipolar = false, alt = false, defaultValue = 0.5 }) {
   const [drag, setDrag] = useState(false);
-  const stash = useRef({ y: 0, v: 0 });
 
-  const D = size === 'lg' ? 86 : size === 'sm' ? 46 : 58;
+  const D = size === 'lg' ? 82 : size === 'sm' ? 46 : 58;
   const sw = size === 'lg' ? 3.6 : size === 'sm' ? 2.6 : 3.0;
   const c = D / 2;
   const R = c - sw - 2;
@@ -35,24 +56,8 @@ function Knob({ value = 0.5, onChange, size = 'md', label, format, bipolar = fal
   const [pix, piy] = polar(c, c, pointerInner, ang);
 
   const onDown = useCallback((e) => {
-    e.preventDefault();
-    const pt = e.touches ? e.touches[0] : e;
-    stash.current = { y: pt.clientY, v: value };
     setDrag(true);
-    const move = (ev) => {
-      const p = ev.touches ? ev.touches[0] : ev;
-      const fine = ev.shiftKey ? 0.25 : 1;
-      // 240 px per full knob range; shift = quarter speed for fine trims.
-      const dv = (stash.current.y - p.clientY) / 240 * fine;
-      onChange && onChange(Math.max(0, Math.min(1, stash.current.v + dv)));
-    };
-    const up = () => {
-      setDrag(false);
-      window.removeEventListener('pointermove', move);
-      window.removeEventListener('pointerup', up);
-    };
-    window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', up);
+    beginVerticalDrag(e, value, onChange, () => setDrag(false));
   }, [value, onChange]);
 
   const onDbl = () => onChange && onChange(defaultValue);
@@ -66,15 +71,14 @@ function Knob({ value = 0.5, onChange, size = 'md', label, format, bipolar = fal
     ticks.push(<line key={i} className="k-tick" x1={x1} y1={y1} x2={x2} y2={y2} strokeWidth="1" />);
   }
 
-  const midAng = 0;
   const arc = bipolar
-    ? (value >= 0.5 ? arcPath(c, c, R, midAng, ang) : arcPath(c, c, R, ang, midAng))
+    ? (value >= 0.5 ? arcPath(c, c, R, 0, ang) : arcPath(c, c, R, ang, 0))
     : arcPath(c, c, R, A0, ang);
 
   const valTxt = format ? format(value) : Math.round(value * 100) + '%';
 
   return (
-    <div className={'knob' + (violet ? ' violet' : '')}>
+    <div className={'knob' + (alt ? ' alt' : '')}>
       <div className={'dial' + (drag ? ' dragging' : '')}
            onPointerDown={onDown} onDoubleClick={onDbl}
            style={{ width: D, height: D }}>
@@ -91,30 +95,21 @@ function Knob({ value = 0.5, onChange, size = 'md', label, format, bipolar = fal
           <circle className="k-hub" cx={c} cy={c} r={size === 'lg' ? 2.6 : 2} />
         </svg>
       </div>
-      {label && <div className="klabel">{label}</div>}
+      {label !== null && <div className="klabel">{label !== undefined ? label : ''}</div>}
     </div>
   );
 }
 
-/* ---- Chip toggle (LED) ---- */
-function Chip({ on, onClick, children, ...rest }) {
+/* ---- Parameter knob ----
+   Everything (label, default, formatter, bipolarity) comes from the one
+   PARAMS table, so a range change in C++ is mirrored in exactly one place. */
+function PKnob({ id, size, alt }) {
+  const spec = PARAMS[id];
+  const [v, set] = JuceBridge.useJuceSlider(id);
   return (
-    <button className="chip" data-on={on ? '1' : '0'} onClick={onClick} {...rest}>
-      <span className="led" />{children}
-    </button>
-  );
-}
-
-/* ---- Segmented control ---- */
-function Seg({ index, options, onChange, violet = false }) {
-  return (
-    <div className={'seg' + (violet ? ' violet' : '')}>
-      {options.map((o, i) => (
-        <button key={o} className={i === index ? 'on' : ''} onClick={() => onChange && onChange(i)}>
-          {o}
-        </button>
-      ))}
-    </div>
+    <Knob value={v} onChange={set} size={size} alt={alt}
+          label={spec.label} format={spec.format}
+          bipolar={!!spec.bipolar} defaultValue={spec.def} />
   );
 }
 
@@ -129,28 +124,28 @@ function PHead({ title, meta }) {
   );
 }
 
-/* ---- Vertical meter (dB in, -60..+6 scale) ----
-   Animated by mutating the bar height from a rAF tick — going through React
-   state would repaint at the 30 Hz event rate and fight the render loop. */
-function Meter({ db = -90, label }) {
-  const dbRef = useRef(db);
-  dbRef.current = db;
+/* ---- Vertical output meter ----
+   Subscribes straight to the levels event and animates from a rAF tick.
+   Routing 30 Hz telemetry through React state would repaint the whole
+   panel tree at the event rate and fight the render loop. */
+function LiveMeter({ channel = 0, label }) {
+  const lv = JuceBridge.useEventRef('levels', { out: [-90, -90] });
   const barRef = useRef(null);
-  const smoothRef = useRef(0);
+  const smooth = useRef(0);
   useEffect(() => {
-    let raf = 0;
-    let last = performance.now();
+    let raf = 0, last = performance.now();
     const tick = (now) => {
       const dt = Math.min(0.1, (now - last) / 1000); last = now;
-      const target = Math.max(0, Math.min(1, (dbRef.current + 60) / 66));
-      const k = target > smoothRef.current ? 1 - Math.exp(-dt / 0.02) : 1 - Math.exp(-dt / 0.20);
-      smoothRef.current += (target - smoothRef.current) * k;
-      if (barRef.current) barRef.current.style.height = (smoothRef.current * 100) + '%';
+      const db = (lv.current.out && lv.current.out[channel] !== undefined) ? lv.current.out[channel] : -90;
+      const target = Math.max(0, Math.min(1, (db + 60) / 66));
+      const k = target > smooth.current ? 1 - Math.exp(-dt / 0.02) : 1 - Math.exp(-dt / 0.20);
+      smooth.current += (target - smooth.current) * k;
+      if (barRef.current) barRef.current.style.height = (smooth.current * 100) + '%';
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [channel]);
   return (
     <div className="meter">
       <div className="mtrack"><div className="mfill" ref={barRef} /></div>
@@ -159,4 +154,39 @@ function Meter({ db = -90, label }) {
   );
 }
 
-Object.assign(window, { Knob, Chip, Seg, PHead, Meter, polar, arcPath, A0, A1, SWEEP });
+/* ---- Horizontal live bar ----
+   `field` names a scalar on the levels event; `full` is the value that
+   maps to a filled bar (metres for lipOpen, m^3/s for flow). */
+function LiveBar({ field, full = 1, label, unit, digits = 2, scale = 1 }) {
+  const lv = JuceBridge.useEventRef('levels', {});
+  const barRef = useRef(null);
+  const numRef = useRef(null);
+  const smooth = useRef(0);
+  useEffect(() => {
+    let raf = 0, last = performance.now();
+    const tick = (now) => {
+      const dt = Math.min(0.1, (now - last) / 1000); last = now;
+      const raw = Number(lv.current[field]) || 0;
+      const target = Math.max(0, Math.min(1, raw / full));
+      const k = target > smooth.current ? 1 - Math.exp(-dt / 0.03) : 1 - Math.exp(-dt / 0.12);
+      smooth.current += (target - smooth.current) * k;
+      if (barRef.current) barRef.current.style.width = (smooth.current * 100) + '%';
+      if (numRef.current) numRef.current.textContent = (raw * scale).toFixed(digits) + (unit || '');
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [field, full]);
+  return (
+    <div className="hbar">
+      <div className="hbrow">
+        <span className="hblabel">{label}</span>
+        <span className="hbval" ref={numRef}>—</span>
+      </div>
+      <div className="hbtrack"><div className="hbfill" ref={barRef} /></div>
+    </div>
+  );
+}
+
+Object.assign(window, { Knob, PKnob, PHead, LiveMeter, LiveBar,
+                        polar, arcPath, beginVerticalDrag, A0, A1, SWEEP });

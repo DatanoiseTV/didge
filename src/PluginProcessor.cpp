@@ -1,5 +1,5 @@
 /*
-  Qube — quadraphonic spatial panner
+  Didge — physically modeled didgeridoo
   Copyright (C) 2026 DatanoiseTV
 
   This program is free software: you can redistribute it and/or modify it under
@@ -14,134 +14,161 @@
 #include "ParameterIDs.h"
 #include "ui/WebEditor.h"
 
-QubeAudioProcessor::QubeAudioProcessor()
+DidgeAudioProcessor::DidgeAudioProcessor()
     : AudioProcessor (BusesProperties()
-                          .withInput  ("Input",  juce::AudioChannelSet::stereo(), true)
-                          .withOutput ("Output", juce::AudioChannelSet::quadraphonic(), true)),
-      apvts (*this, nullptr, "PARAMS", qube::ids::createParameterLayout()),
+                          .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
+      apvts (*this, nullptr, "PARAMS", didge::ids::createParameterLayout()),
       presetManager (apvts)
 {
-    apvts.state.addListener (this);
-    presetManager.setPostLoadHook ([this]
-    {
-        snapshotCurrentParams();
-        presetDirty.store (false, std::memory_order_relaxed);
-    });
+    events.reserve (256);
+    presetManager.setPostLoadHook ([this] { snapshotCurrentParams(); });
     snapshotCurrentParams();
 }
 
-QubeAudioProcessor::~QubeAudioProcessor()
-{
-    apvts.state.removeListener (this);
-}
+DidgeAudioProcessor::~DidgeAudioProcessor() = default;
 
-bool QubeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool DidgeAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
-    const auto in  = layouts.getMainInputChannelSet();
+    if (layouts.getMainInputChannelSet() != juce::AudioChannelSet::disabled())
+        return false;
     const auto out = layouts.getMainOutputChannelSet();
-
-    const bool inOk  = in == juce::AudioChannelSet::mono()
-                    || in == juce::AudioChannelSet::stereo();
-    const bool outOk = out == juce::AudioChannelSet::stereo()
-                    || out == juce::AudioChannelSet::quadraphonic();
-    return inOk && outOk;
+    return out == juce::AudioChannelSet::stereo() || out == juce::AudioChannelSet::mono();
 }
 
-void QubeAudioProcessor::prepareToPlay (double newSampleRate, int samplesPerBlock)
+void DidgeAudioProcessor::prepareToPlay (double newSampleRate, int samplesPerBlock)
 {
     sampleRate = newSampleRate;
     engine.prepare (newSampleRate, juce::jmax (16, samplesPerBlock));
 }
 
-qube::EngineParams QubeAudioProcessor::buildEngineParams() const
+didge::EngineParams DidgeAudioProcessor::buildEngineParams() const
 {
-    using namespace qube::ids;
-    auto raw = [this] (const char* id) { return apvts.getRawParameterValue (id)->load (std::memory_order_relaxed); };
+    using namespace didge::ids;
+    auto raw = [this] (const char* id)
+    {
+        return apvts.getRawParameterValue (id)->load (std::memory_order_relaxed);
+    };
 
-    qube::EngineParams p;
-    p.posX          = raw (posX);
-    p.posY          = raw (posY);
-    p.spread        = raw (spread);
-    p.rotateDeg     = raw (rotate);
+    didge::EngineParams p;
+    p.pressure    = raw (pressure);
+    p.attackMs    = raw (attack);
+    p.releaseMs   = raw (release);
+    p.vibRate     = raw (vibRate);
+    p.vibDepth    = raw (vibDepth);
+    p.breath      = raw (breathNoise);
 
-    p.motionMode    = static_cast<int> (raw (motionMode));
-    p.motionRateHz  = raw (motionRate);
-    p.motionSync    = raw (motionSync) > 0.5f;
-    const int divIdx = juce::jlimit (0, (int) std::size (motionDivBeats) - 1,
-                                     static_cast<int> (raw (motionDiv)));
-    p.motionDivBeats = motionDivBeats[divIdx];
-    p.motionRadius  = raw (motionRadius);
-    p.motionPhaseDeg = raw (motionPhase);
-    p.motionReverse = raw (motionReverse) > 0.5f;
+    p.tensionSemis = raw (tension);
+    p.lipDamp      = raw (lipDamp);
+    p.embouchure   = raw (embouchure);
 
-    p.distAmount    = raw (distAmount);
-    p.airAbsorb     = raw (airAbsorb);
-    p.doppler       = raw (doppler);
-    p.roomMix       = raw (roomMix);
-    p.roomSize      = raw (roomSize);
-    p.roomDamp      = raw (roomDamp);
+    p.tractMix    = raw (tractMix);
+    p.vowelX      = raw (vowelX);
+    p.vowelY      = raw (vowelY);
+    p.growl       = raw (growl);
+    p.growlSemis  = raw (growlPitch);
 
-    p.outputMode    = static_cast<int> (raw (outputMode));
-    p.masterGainLin = juce::Decibels::decibelsToGain (raw (masterGain));
+    p.tuneCents      = raw (tune);
+    p.shape.bell     = raw (bell);
+    p.shape.flare    = raw (flare);
+    p.shape.texture  = raw (texture);
+    p.shape.wallDamp = raw (wallDamp);
+
+    p.spaceMix   = raw (spaceMix);
+    p.spaceSize  = raw (spaceSize);
+    p.outGainLin = juce::Decibels::decibelsToGain (raw (outGain));
     return p;
 }
 
-void QubeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
+void DidgeAudioProcessor::collectEvents (juce::MidiBuffer& midi)
+{
+    events.clear();
+    for (const auto meta : midi)
+    {
+        const auto m = meta.getMessage();
+        const int  t = meta.samplePosition;
+
+        if (m.isNoteOn())
+            events.push_back ({ t, didge::NoteEvent::noteOn, m.getNoteNumber(),
+                                m.getFloatVelocity() });
+        else if (m.isNoteOff())
+            events.push_back ({ t, didge::NoteEvent::noteOff, m.getNoteNumber(), 0.0f });
+        else if (m.isAllNotesOff() || m.isAllSoundOff())
+            events.push_back ({ t, didge::NoteEvent::allNotesOff, 0, 0.0f });
+        else if (m.isPitchWheel())
+            // +/- 2 semitones, the near-universal default bend range.
+            engine.setPitchBend ((m.getPitchWheelValue() - 8192) / 8192.0f * 2.0f);
+        else if (m.isController())
+        {
+            // CC2 (breath) and CC11 (expression) scale the blowing pressure —
+            // the natural mapping for a wind instrument, and what a breath
+            // controller sends.
+            const int cc = m.getControllerNumber();
+            if (cc == 2 || cc == 11)
+                engine.setPressureScale (m.getControllerValue() / 127.0f * 1.5f);
+        }
+    }
+}
+
+void DidgeAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer& midi)
 {
     juce::ScopedNoDenormals noDenormals;
 
-    const int numIn  = getTotalNumInputChannels();
     const int numOut = getTotalNumOutputChannels();
-    const int n      = buffer.getNumSamples();
-    if (n == 0 || numOut < 2)
+    const int n = buffer.getNumSamples();
+    buffer.clear();
+    if (n == 0 || numOut < 1)
         return;
 
-    activeOutputChannels.store (numOut, std::memory_order_relaxed);
-
-    qube::TransportInfo transport;
     if (auto* ph = getPlayHead())
         if (auto pos = ph->getPosition())
-        {
-            if (auto bpm = pos->getBpm())         transport.bpm = *bpm;
-            if (auto ppq = pos->getPpqPosition()) transport.ppqPosition = *ppq;
-            transport.playing = pos->getIsPlaying();
-        }
-    currentBpm.store (transport.bpm, std::memory_order_relaxed);
-    hostPlaying.store (transport.playing, std::memory_order_relaxed);
+            hostPlaying.store (pos->getIsPlaying(), std::memory_order_relaxed);
 
-    engine.process (buffer.getArrayOfReadPointers(), juce::jmin (numIn, 2),
-                    buffer.getArrayOfWritePointers(), numOut,
-                    n, buildEngineParams(), transport);
+    collectEvents (midi);
+
+    float* left  = buffer.getWritePointer (0);
+    float* right = numOut > 1 ? buffer.getWritePointer (1) : left;
+
+    if (numOut > 1)
+    {
+        engine.process (left, right, n, buildEngineParams(), events.data(), (int) events.size());
+    }
+    else
+    {
+        // Mono host: render into a scratch right channel and fold.
+        std::vector<float>& scratch = monoScratch;
+        if ((int) scratch.size() < n) scratch.resize ((size_t) n);
+        engine.process (left, scratch.data(), n, buildEngineParams(),
+                        events.data(), (int) events.size());
+        for (int i = 0; i < n; ++i)
+            left[i] = 0.5f * (left[i] + scratch[(size_t) i]);
+    }
+
+    for (int ch = 2; ch < numOut; ++ch)
+        buffer.clear (ch, 0, n);
 }
 
-juce::AudioProcessorEditor* QubeAudioProcessor::createEditor()
+juce::AudioProcessorEditor* DidgeAudioProcessor::createEditor()
 {
-    return new qube::WebEditor (*this);
+    return new didge::WebEditor (*this);
 }
 
-void QubeAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
+void DidgeAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
     if (auto xml = apvts.copyState().createXml())
         copyXmlToBinary (*xml, destData);
 }
 
-void QubeAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
+void DidgeAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
         {
             apvts.replaceState (juce::ValueTree::fromXml (*xml));
             snapshotCurrentParams();
-            presetDirty.store (false, std::memory_order_relaxed);
         }
 }
 
-void QubeAudioProcessor::valueTreePropertyChanged (juce::ValueTree&, const juce::Identifier&)
-{
-    presetDirty.store (! currentMatchesSnapshot(), std::memory_order_relaxed);
-}
-
-void QubeAudioProcessor::snapshotCurrentParams()
+void DidgeAudioProcessor::snapshotCurrentParams()
 {
     cleanSnapshot.clear();
     for (auto* p : getParameters())
@@ -149,7 +176,7 @@ void QubeAudioProcessor::snapshotCurrentParams()
             cleanSnapshot[rp->getParameterID()] = rp->getValue();
 }
 
-bool QubeAudioProcessor::currentMatchesSnapshot() const
+bool DidgeAudioProcessor::currentMatchesSnapshot() const
 {
     for (auto* p : getParameters())
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
@@ -164,5 +191,5 @@ bool QubeAudioProcessor::currentMatchesSnapshot() const
 // This creates new instances of the plugin.
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new QubeAudioProcessor();
+    return new DidgeAudioProcessor();
 }

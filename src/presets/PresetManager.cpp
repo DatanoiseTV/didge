@@ -1,5 +1,5 @@
 /*
-  Qube — quadraphonic spatial panner
+  Didge — physically modeled didgeridoo
   Copyright (C) 2026 DatanoiseTV
 
   This program is free software: you can redistribute it and/or modify it under
@@ -13,8 +13,8 @@
 #include "PresetManager.h"
 #include "../ParameterIDs.h"
 
-#ifndef QUBE_VERSION
- #define QUBE_VERSION "dev"   // set by CMake on the plugin target; tests fall back
+#ifndef DIDGE_VERSION
+ #define DIDGE_VERSION "dev"   // set by CMake on the plugin target; tests fall back
 #endif
 
 namespace
@@ -23,62 +23,77 @@ namespace
     // listed resets to its default first, so presets are self-contained.
     std::vector<PresetManager::Preset> makeFactory()
     {
-        using namespace qube::ids;
+        using namespace didge::ids;
         return {
-            { "Center Stage", {
-                { posX, 0.0f }, { posY, 0.6f }, { spread, 0.2f },
-                { motionMode, 0 }, { roomMix, 0.15f }, { roomSize, 0.35f },
+            { "Deep Drone", {
+                { pressure, 0.60f }, { breathNoise, 0.22f }, { lipDamp, 0.18f },
+                { embouchure, 0.50f }, { tractMix, 0.45f }, { vowelX, 0.20f },
+                { bell, 0.40f }, { flare, 0.50f }, { texture, 0.30f }, { wallDamp, 0.30f },
+                { spaceMix, 0.18f }, { spaceSize, 0.40f },
             } },
-            { "Slow Orbit", {
-                { posX, 0.0f }, { posY, 0.0f }, { spread, 0.15f },
-                { motionMode, 1 }, { motionRate, 0.08f }, { motionRadius, 0.75f },
-                { distAmount, 0.45f }, { airAbsorb, 0.5f },
-                { roomMix, 0.3f }, { roomSize, 0.55f }, { roomDamp, 0.45f },
+            { "Yidaki", {
+                // Bright, hard-edged traditional stringybark instrument:
+                // narrow bell, harder walls, more upper harmonics.
+                { pressure, 0.72f }, { breathNoise, 0.30f }, { lipDamp, 0.12f },
+                { embouchure, 0.42f }, { tractMix, 0.55f }, { vowelX, 0.45f },
+                { bell, 0.26f }, { flare, 0.35f }, { texture, 0.45f }, { wallDamp, 0.15f },
+                { spaceMix, 0.14f }, { spaceSize, 0.30f },
             } },
-            { "Vertigo", {
-                { posX, 0.0f }, { posY, 0.0f },
-                { motionMode, 1 }, { motionRate, 1.8f }, { motionRadius, 0.9f },
-                { doppler, 0.65f }, { distAmount, 0.6f }, { airAbsorb, 0.6f },
-                { roomMix, 0.2f }, { roomSize, 0.5f },
+            { "Termite Bore", {
+                // Irregular, hollowed-out wall: maximum texture.
+                { pressure, 0.58f }, { breathNoise, 0.35f }, { lipDamp, 0.22f },
+                { embouchure, 0.55f }, { tractMix, 0.50f }, { vowelX, 0.30f },
+                { bell, 0.55f }, { flare, 0.65f }, { texture, 0.95f }, { wallDamp, 0.40f },
+                { spaceMix, 0.22f }, { spaceSize, 0.45f },
             } },
-            { "Figure Eight", {
-                { posX, 0.0f }, { posY, 0.0f },
-                { motionMode, 2 }, { motionRate, 0.22f }, { motionRadius, 0.85f },
-                { distAmount, 0.5f }, { roomMix, 0.25f }, { roomSize, 0.5f },
+            { "Circular Breath", {
+                // Long release plus slow vibrato so overlapping notes blend
+                // the way a circular-breathing player sustains a drone.
+                { pressure, 0.55f }, { attack, 90.0f }, { release, 520.0f },
+                { vibRate, 3.2f }, { vibDepth, 0.18f }, { breathNoise, 0.28f },
+                { lipDamp, 0.20f }, { tractMix, 0.48f }, { vowelX, 0.25f },
+                { bell, 0.42f }, { spaceMix, 0.26f }, { spaceSize, 0.55f },
             } },
-            { "Synced Pendulum", {
-                { posX, 0.0f }, { posY, 0.35f },
-                { motionMode, 3 }, { motionSync, 1.0f }, { motionDiv, 3 },
-                { motionRadius, 0.8f }, { roomMix, 0.15f },
+            { "Rhythm Machine", {
+                // Short, tongued attacks for the percussive didgeridoo style.
+                { pressure, 0.78f }, { attack, 6.0f }, { release, 45.0f },
+                { breathNoise, 0.45f }, { lipDamp, 0.14f }, { embouchure, 0.40f },
+                { tractMix, 0.62f }, { vowelX, 0.55f }, { vowelY, 0.65f },
+                { bell, 0.38f }, { texture, 0.35f },
+                { spaceMix, 0.12f }, { spaceSize, 0.28f },
             } },
-            { "Front-Back Bounce", {
-                { posX, 0.0f }, { posY, 0.0f },
-                { motionMode, 4 }, { motionSync, 1.0f }, { motionDiv, 2 },
-                { motionRadius, 0.85f }, { doppler, 0.4f },
-                { distAmount, 0.55f }, { airAbsorb, 0.55f }, { roomMix, 0.3f },
+            { "Growl Beast", {
+                { pressure, 0.85f }, { breathNoise, 0.40f }, { lipDamp, 0.10f },
+                { embouchure, 0.38f }, { tractMix, 0.75f }, { vowelX, 0.40f },
+                { growl, 0.75f }, { growlPitch, 19.0f },
+                { bell, 0.48f }, { flare, 0.55f }, { texture, 0.50f },
+                { spaceMix, 0.16f }, { spaceSize, 0.38f },
             } },
-            { "Haunted Hallway", {
-                { posX, 0.0f }, { posY, -0.2f },
-                { motionMode, 5 }, { motionRate, 0.15f }, { motionRadius, 0.9f },
-                { distAmount, 0.7f }, { airAbsorb, 0.8f }, { doppler, 0.25f },
-                { roomMix, 0.5f }, { roomSize, 0.85f }, { roomDamp, 0.6f },
+            { "Wobble Bass", {
+                { pressure, 0.68f }, { vibRate, 6.5f }, { vibDepth, 0.55f },
+                { breathNoise, 0.20f }, { lipDamp, 0.25f }, { embouchure, 0.60f },
+                { tractMix, 0.70f }, { vowelX, 0.10f }, { vowelY, 0.30f },
+                { bell, 0.62f }, { flare, 0.45f }, { wallDamp, 0.45f },
+                { spaceMix, 0.20f }, { spaceSize, 0.50f },
             } },
-            { "Fly-By", {
-                { posX, 0.0f }, { posY, 0.0f },
-                { motionMode, 3 }, { motionRate, 0.5f }, { motionRadius, 1.0f },
-                { doppler, 1.0f }, { distAmount, 0.8f }, { airAbsorb, 0.7f },
-                { roomMix, 0.2f }, { roomSize, 0.6f },
+            { "High Mago", {
+                // Shorter, higher-pitched instrument; tighter embouchure.
+                { pressure, 0.66f }, { breathNoise, 0.26f }, { lipDamp, 0.14f },
+                { embouchure, 0.35f }, { tractMix, 0.52f }, { vowelX, 0.60f },
+                { bell, 0.30f }, { flare, 0.40f }, { texture, 0.25f }, { wallDamp, 0.22f },
+                { spaceMix, 0.18f }, { spaceSize, 0.35f },
             } },
-            { "Wide & Close", {
-                { posX, 0.0f }, { posY, 0.45f }, { spread, 0.85f },
-                { motionMode, 0 }, { distAmount, 0.2f }, { airAbsorb, 0.2f },
-                { roomMix, 0.12f }, { roomSize, 0.3f },
+            { "Wide Bell", {
+                { pressure, 0.64f }, { breathNoise, 0.24f }, { lipDamp, 0.20f },
+                { embouchure, 0.55f }, { tractMix, 0.45f }, { vowelX, 0.20f },
+                { bell, 0.95f }, { flare, 0.80f }, { texture, 0.30f }, { wallDamp, 0.35f },
+                { spaceMix, 0.30f }, { spaceSize, 0.65f },
             } },
-            { "Distant Storm", {
-                { posX, -0.4f }, { posY, -0.85f }, { spread, 0.5f },
-                { motionMode, 5 }, { motionRate, 0.06f }, { motionRadius, 0.35f },
-                { distAmount, 0.9f }, { airAbsorb, 0.9f },
-                { roomMix, 0.55f }, { roomSize, 0.95f }, { roomDamp, 0.35f },
+            { "Dry & Close", {
+                { pressure, 0.62f }, { breathNoise, 0.18f }, { lipDamp, 0.18f },
+                { tractMix, 0.40f }, { vowelX, 0.30f },
+                { bell, 0.40f }, { flare, 0.50f }, { wallDamp, 0.30f },
+                { spaceMix, 0.0f }, { spaceSize, 0.30f },
             } },
         };
     }
@@ -110,7 +125,7 @@ juce::StringArray PresetManager::getUserNames() const
 juce::File PresetManager::userPresetDirectory()
 {
     return juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-        .getChildFile ("Qube").getChildFile ("Presets");
+        .getChildFile ("Didge").getChildFile ("Presets");
 }
 
 void PresetManager::applyPreset (const Preset& preset)
@@ -179,8 +194,8 @@ void PresetManager::saveUser (const juce::String& name)
     auto dir = userPresetDirectory();
     dir.createDirectory();
 
-    juce::ValueTree tree ("QubePreset");
-    tree.setProperty ("version", QUBE_VERSION, nullptr);
+    juce::ValueTree tree ("DidgePreset");
+    tree.setProperty ("version", DIDGE_VERSION, nullptr);
     for (auto* p : apvts.processor.getParameters())
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
         {

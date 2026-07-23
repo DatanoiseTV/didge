@@ -1,5 +1,5 @@
 /*
-  Qube — quadraphonic spatial panner
+  Didge — physically modeled didgeridoo
   Copyright (C) 2026 DatanoiseTV
 
   This program is free software: you can redistribute it and/or modify it under
@@ -14,14 +14,14 @@
 #include "../PluginProcessor.h"
 #include "../ParameterIDs.h"
 
-#include <QubeUIData.h>
+#include <DidgeUIData.h>
 
 #include <optional>
 #include <vector>
 #include <cstddef>
 #include <iostream>
 
-namespace qube
+namespace didge
 {
 namespace
 {
@@ -35,13 +35,13 @@ namespace
 
         ResourceTable()
         {
-            for (int i = 0; i < QubeUIData::namedResourceListSize; ++i)
+            for (int i = 0; i < DidgeUIData::namedResourceListSize; ++i)
             {
-                const char* name = QubeUIData::namedResourceList[i];
+                const char* name = DidgeUIData::namedResourceList[i];
                 int size = 0;
-                const char* data = QubeUIData::getNamedResource (name, size);
+                const char* data = DidgeUIData::getNamedResource (name, size);
                 if (data == nullptr) continue;
-                const juce::String original (QubeUIData::getNamedResourceOriginalFilename (name));
+                const juce::String original (DidgeUIData::getNamedResourceOriginalFilename (name));
                 entries.push_back ({ original, data, size });
             }
         }
@@ -68,7 +68,7 @@ namespace
             }
             // 404: surfaced on stderr so a terminal-launched standalone shows
             // missing-resource bugs (the blank-window failure class) directly.
-            std::cerr << "Qube WebEditor: resource not found — \"" << url
+            std::cerr << "Didge WebEditor: resource not found — \"" << url
                       << "\" (looked up as \"" << name << "\")" << std::endl;
             return std::nullopt;
         }
@@ -97,28 +97,22 @@ namespace
     // Must match the IDs in src/ParameterIDs.h and the PARAM ids used by the
     // JS side (ui/src). A typo here becomes a dead control at runtime.
     constexpr const char* kFloatIds[] = {
-        "posX", "posY", "spread", "rotate",
-        "motionRate", "motionRadius", "motionPhase",
-        "distAmount", "airAbsorb", "doppler",
-        "roomMix", "roomSize", "roomDamp",
-        "masterGain",
-    };
-    constexpr const char* kBoolIds[] = {
-        "motionSync", "motionReverse",
-    };
-    constexpr const char* kChoiceIds[] = {
-        "motionMode", "motionDiv", "outputMode",
+        "pressure", "attack", "release", "vibRate", "vibDepth", "breathNoise",
+        "tension", "lipDamp", "embouchure",
+        "tractMix", "vowelX", "vowelY", "growl", "growlPitch",
+        "tune", "bell", "flare", "texture", "wallDamp",
+        "spaceMix", "spaceSize", "outGain",
     };
 
     // Design canvas. The JS fit scaler letterbox-scales #plugin to the window;
     // the editor constrains resize to the same aspect so there are no borders.
     constexpr int kDesignW = 1280;
-    constexpr int kDesignH = 840;
+    constexpr int kDesignH = 720;
 }
 
 // ============================================================================
-WebEditor::WebEditor (::QubeAudioProcessor& proc)
-    : juce::AudioProcessorEditor (&proc), qubeProcessor (proc)
+WebEditor::WebEditor (::DidgeAudioProcessor& proc)
+    : juce::AudioProcessorEditor (&proc), didgeProcessor (proc)
 {
     setResizable (true, true);
     setWantsKeyboardFocus (true);
@@ -131,7 +125,7 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
     // reparent into the host window works under Wayland sessions.
     ::setenv ("GDK_BACKEND", "x11", 0);
     // Point JUCE's WebKit helper extraction at an exec-allowed, user-owned
-    // dir ($XDG_RUNTIME_DIR, fallback ~/.cache/qube) — /tmp can be noexec.
+    // dir ($XDG_RUNTIME_DIR, fallback ~/.cache/didge) — /tmp can be noexec.
     if (::getenv ("TMPDIR") == nullptr)
     {
         juce::File chosen;
@@ -140,21 +134,21 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
             juce::File xdgDir { juce::String (xdg) };
             if (xdgDir.isDirectory())
             {
-                chosen = xdgDir.getChildFile ("qube");
+                chosen = xdgDir.getChildFile ("didge");
                 chosen.createDirectory();
             }
         }
         if (chosen == juce::File())
         {
             chosen = juce::File::getSpecialLocation (juce::File::userHomeDirectory)
-                        .getChildFile (".cache/qube");
+                        .getChildFile (".cache/didge");
             chosen.createDirectory();
         }
         ::setenv ("TMPDIR", chosen.getFullPathName().toRawUTF8(), 0);
     }
    #endif
 
-    auto& apvts = qubeProcessor.getValueTreeState();
+    auto& apvts = didgeProcessor.getValueTreeState();
 
     juce::WebBrowserComponent::Options options;
     options = options
@@ -162,7 +156,7 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
         .withBackend (juce::WebBrowserComponent::Options::Backend::webview2)
         .withWinWebView2Options (juce::WebBrowserComponent::Options::WinWebView2{}
             .withUserDataFolder (juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory)
-                                     .getChildFile ("QubeWebView2"))
+                                     .getChildFile ("DidgeWebView2"))
             .withStatusBarDisabled()
             .withBuiltInErrorPageDisabled())
        #else
@@ -173,7 +167,7 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
         .withResourceProvider (
             [] (const juce::String& url) { return resourceTable().lookup (url); },
             juce::URL (juce::WebBrowserComponent::getResourceProviderRoot()).getOrigin())
-        .withUserScript ("window.QUBE_VERSION_STR = 'v" QUBE_VERSION " · " QUBE_GIT_BRANCH "';")
+        .withUserScript ("window.DIDGE_VERSION_STR = 'v" DIDGE_VERSION " · " DIDGE_GIT_BRANCH "';")
         .withNativeFunction (juce::Identifier { "reloadUI" },
             [this] (const juce::Array<juce::var>&, juce::WebBrowserComponent::NativeFunctionCompletion complete)
             {
@@ -184,7 +178,7 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
             [this] (const juce::Array<juce::var>&, juce::WebBrowserComponent::NativeFunctionCompletion complete)
             {
                 juce::Array<juce::var> arr;
-                for (const auto& n : qubeProcessor.getPresetManager().getFactoryNames())
+                for (const auto& n : didgeProcessor.getPresetManager().getFactoryNames())
                     arr.add (juce::var (n));
                 complete (juce::var (arr));
             })
@@ -192,39 +186,37 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
             [this] (const juce::Array<juce::var>&, juce::WebBrowserComponent::NativeFunctionCompletion complete)
             {
                 juce::Array<juce::var> arr;
-                for (const auto& n : qubeProcessor.getPresetManager().getUserNames())
+                for (const auto& n : didgeProcessor.getPresetManager().getUserNames())
                     arr.add (juce::var (n));
                 complete (juce::var (arr));
             })
         .withEventListener (juce::Identifier { "preset_prev" },
-            [this] (juce::var) { qubeProcessor.getPresetManager().previous(); })
+            [this] (juce::var) { didgeProcessor.getPresetManager().previous(); })
         .withEventListener (juce::Identifier { "preset_next" },
-            [this] (juce::var) { qubeProcessor.getPresetManager().next(); })
+            [this] (juce::var) { didgeProcessor.getPresetManager().next(); })
         .withEventListener (juce::Identifier { "preset_load" },
             [this] (juce::var payload)
             {
                 const auto name = payload.getProperty ("name", juce::String()).toString();
                 if (name.isNotEmpty())
-                    qubeProcessor.getPresetManager().loadByName (name);
+                    didgeProcessor.getPresetManager().loadByName (name);
             })
         .withEventListener (juce::Identifier { "preset_save" },
             [this] (juce::var payload)
             {
                 const auto name = payload.getProperty ("name", juce::String()).toString().trim();
                 if (name.isNotEmpty())
-                    qubeProcessor.getPresetManager().saveUser (name);
+                    didgeProcessor.getPresetManager().saveUser (name);
             })
         .withEventListener (juce::Identifier { "preset_delete" },
             [this] (juce::var payload)
             {
                 const auto name = payload.getProperty ("name", juce::String()).toString();
                 if (name.isNotEmpty())
-                    qubeProcessor.getPresetManager().deleteUser (name);
+                    didgeProcessor.getPresetManager().deleteUser (name);
             });
 
     sliderBindings.reserve (juce::numElementsInArray (kFloatIds));
-    toggleBindings.reserve (juce::numElementsInArray (kBoolIds));
-    comboBindings .reserve (juce::numElementsInArray (kChoiceIds));
 
     for (auto id : kFloatIds)
     {
@@ -233,20 +225,6 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
         options = options.withOptionsFrom (*b.relay);
         sliderBindings.push_back (std::move (b));
     }
-    for (auto id : kBoolIds)
-    {
-        ToggleBinding b;
-        b.relay = std::make_unique<juce::WebToggleButtonRelay> (juce::String (id));
-        options = options.withOptionsFrom (*b.relay);
-        toggleBindings.push_back (std::move (b));
-    }
-    for (auto id : kChoiceIds)
-    {
-        ComboBinding b;
-        b.relay = std::make_unique<juce::WebComboBoxRelay> (juce::String (id));
-        options = options.withOptionsFrom (*b.relay);
-        comboBindings.push_back (std::move (b));
-    }
 
     webView = std::make_unique<juce::WebBrowserComponent> (options);
     addAndMakeVisible (*webView);
@@ -254,12 +232,6 @@ WebEditor::WebEditor (::QubeAudioProcessor& proc)
     for (size_t i = 0; i < std::size (kFloatIds); ++i)
         if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (kFloatIds[i])))
             sliderBindings[i].attach = std::make_unique<juce::WebSliderParameterAttachment> (*p, *sliderBindings[i].relay, apvts.undoManager);
-    for (size_t i = 0; i < std::size (kBoolIds); ++i)
-        if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (kBoolIds[i])))
-            toggleBindings[i].attach = std::make_unique<juce::WebToggleButtonParameterAttachment> (*p, *toggleBindings[i].relay, apvts.undoManager);
-    for (size_t i = 0; i < std::size (kChoiceIds); ++i)
-        if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (kChoiceIds[i])))
-            comboBindings[i].attach = std::make_unique<juce::WebComboBoxParameterAttachment> (*p, *comboBindings[i].relay, apvts.undoManager);
 
     // Open at design size when the display can hold it, else the largest
     // same-aspect box that fits ~92% of the primary display.
@@ -363,8 +335,8 @@ void WebEditor::pollHealthOnce()
     if (webView == nullptr) return;
     webView->evaluateJavascript (
         "(function(){"
-        "  if (window.__qubeReady === true) return 'ready';"
-        "  if (window.__qubeMountError) return 'mount-error:' + window.__qubeMountError;"
+        "  if (window.__didgeReady === true) return 'ready';"
+        "  if (window.__didgeMountError) return 'mount-error:' + window.__didgeMountError;"
         "  return 'pending';"
         "})()",
         [this] (juce::WebBrowserComponent::EvaluationResult result)
@@ -455,29 +427,33 @@ void WebEditor::emitLevels()
         return 20.0f * std::log10 (lin);
     };
 
-    auto& engine = qubeProcessor.getEngine();
+    auto& engine = didgeProcessor.getEngine();
 
-    juce::Array<juce::var> spk;
-    for (int i = 0; i < 4; ++i)
-        spk.add (juce::var (toDb (engine.consumeSpeakerPeak (i))));
-
-    const int outCh = qubeProcessor.getActiveOutputChannels();
     juce::Array<juce::var> outArr;
-    for (int i = 0; i < outCh && i < 4; ++i)
+    for (int i = 0; i < 2; ++i)
         outArr.add (juce::var (toDb (engine.consumeOutPeak (i))));
 
-    juce::DynamicObject::Ptr pos = new juce::DynamicObject();
-    pos->setProperty ("x", engine.currentX());
-    pos->setProperty ("y", engine.currentY());
+    // Bore profile and vocal tract drive the cutaway drawing in the UI, so
+    // what is on screen is the geometry the model is actually running.
+    juce::Array<juce::var> bore;
+    for (int i = 0; i < didge::Bore::kSegments; ++i)
+        bore.add (juce::var (engine.vizBoreRadius (i)));
+
+    juce::Array<juce::var> tract;
+    for (int i = 0; i < didge::VocalTract::kSections; ++i)
+        tract.add (juce::var (engine.vizTractArea (i)));
 
     juce::DynamicObject::Ptr root = new juce::DynamicObject();
-    root->setProperty ("spk",     juce::var (spk));
-    root->setProperty ("out",     juce::var (outArr));
-    root->setProperty ("pos",     juce::var (pos.get()));
-    root->setProperty ("mode",    static_cast<int> (engine.lastRenderMode()));
-    root->setProperty ("outCh",   outCh);
-    root->setProperty ("bpm",     qubeProcessor.getCurrentBpm());
-    root->setProperty ("playing", qubeProcessor.isHostPlaying());
+    root->setProperty ("out",        juce::var (outArr));
+    root->setProperty ("pressure",   engine.vizPressure());
+    root->setProperty ("lipOpen",    engine.vizLipOpen());
+    root->setProperty ("flow",       engine.vizFlow());
+    root->setProperty ("f0",         engine.vizF0());
+    root->setProperty ("toot",       engine.vizToot());
+    root->setProperty ("tootActive", engine.vizTootActive());
+    root->setProperty ("playing",    engine.anyNoteHeld());
+    root->setProperty ("bore",       juce::var (bore));
+    root->setProperty ("tract",      juce::var (tract));
 
     webView->emitEventIfBrowserIsVisible (juce::Identifier { "levels" }, juce::var (root.get()));
 }
@@ -487,9 +463,9 @@ void WebEditor::emitPresetInfo()
     if (webView == nullptr) return;
 
     juce::DynamicObject::Ptr obj = new juce::DynamicObject();
-    obj->setProperty ("name",  qubeProcessor.getPresetManager().getCurrentName());
-    obj->setProperty ("dirty", qubeProcessor.isCurrentPresetDirty());
+    obj->setProperty ("name",  didgeProcessor.getPresetManager().getCurrentName());
+    obj->setProperty ("dirty", didgeProcessor.isCurrentPresetDirty());
     webView->emitEventIfBrowserIsVisible (juce::Identifier { "presetInfo" }, juce::var (obj.get()));
 }
 
-} // namespace qube
+} // namespace didge

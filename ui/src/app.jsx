@@ -1,5 +1,5 @@
 /* ============================================================
-   QUBE · app shell
+   Didge · app shell
    ============================================================ */
 
 function Header({ onOpenBrowser }) {
@@ -7,10 +7,10 @@ function Header({ onOpenBrowser }) {
 
   return (
     <div className="hdr">
-      <div className="mark"><div className="sq" /><div className="dot" /></div>
+      <div className="mark"><span className="r1" /><span className="r2" /><span className="core" /></div>
       <div className="wordmark">
-        <div className="name">QUBE</div>
-        <div className="tag">Quadraphonic Panner</div>
+        <div className="name">DIDGE</div>
+        <div className="tag">Physical Modeling Didgeridoo</div>
       </div>
       <div className="spacer" />
       <div className="presetbar">
@@ -22,60 +22,43 @@ function Header({ onOpenBrowser }) {
         <button className="psave" onClick={onOpenBrowser}>SAVE</button>
       </div>
       <div className="spacer" />
-      <div className="version">{window.QUBE_VERSION_STR || 'dev'}</div>
+      <div className="version">{window.DIDGE_VERSION_STR || 'dev'}</div>
     </div>
   );
 }
 
 function App() {
-  const { useJuceSlider, useJuceChoice, useJuceToggle, useJuceEvent } = JuceBridge;
+  const { useJuceSlider, useJuceEvent } = JuceBridge;
 
-  // Room view needs the base position + path params for the preview overlay.
-  const [posX, setPosX]   = useJuceSlider('posX');
-  const [posY, setPosY]   = useJuceSlider('posY');
-  const [spread]          = useJuceSlider('spread');
-  const [rotate]          = useJuceSlider('rotate');
-  const [motionMode]      = useJuceChoice('motionMode', MOTION_MODES);
-  const [motionRadius]    = useJuceSlider('motionRadius');
-  const [motionPhase]     = useJuceSlider('motionPhase');
-  const [motionReverse]   = useJuceToggle('motionReverse');
+  /* The cutaway draws from the engine's bore array, but it needs the two
+     shaping parameters as drag anchors, plus texture/voice/damping to skin
+     the wall and the tract inset. */
+  const [bell, setBell]     = useJuceSlider('bell');
+  const [flare, setFlare]   = useJuceSlider('flare');
+  const [texture]           = useJuceSlider('texture');
+  const [tractMix]          = useJuceSlider('tractMix');
+  const [wallDamp]          = useJuceSlider('wallDamp');
 
-  const lv = useJuceEvent('levels', { pos: { x: 0, y: 0.5 }, mode: 0, outCh: 2 });
   const preset = useJuceEvent('presetInfo', { name: '—', dirty: false });
-
   const [browser, setBrowser] = React.useState(false);
-
-  const modeName = ['QUAD 4.0', 'BINAURAL', 'STEREO UHJ', 'STEREO MIX'][lv.mode] || 'QUAD 4.0';
-  const px = (lv.pos && lv.pos.x) || 0;
-  const py = (lv.pos && lv.pos.y) || 0;
-  const az = Math.atan2(px, py) * 180 / Math.PI;
-  const dist = Math.hypot(px, py);
 
   return (
     <div id="stage">
       <div id="plugin">
         <Header onOpenBrowser={() => setBrowser(true)} />
-        <div className="main">
-          <div className="roomcard">
-            <div className="poschip">
-              {`AZ ${az >= 0 ? '+' : ''}${az.toFixed(0)}°  ·  DIST ${dist.toFixed(2)}`}
-            </div>
-            <div className="modechip">{modeName}</div>
-            <RoomView
-              size={700}
-              posX={posX} posY={posY} setPosX={setPosX} setPosY={setPosY}
-              motionModeIdx={motionMode} motionRadius={motionRadius}
-              motionPhase={motionPhase} motionReverse={motionReverse}
-              spread={spread} rotate={rotate}
-            />
-            <div className="hint">drag to place · double-click to reset · shift for fine</div>
-          </div>
-          <div className="col">
-            <MotionPanel />
-            <SpacePanel />
-            <RoomPanel />
-            <OutputPanel />
-          </div>
+        <div className="hero">
+          <InstrumentView
+            bell={bell} setBell={setBell}
+            flare={flare} setFlare={setFlare}
+            texture={texture} tractMix={tractMix} wallDamp={wallDamp}
+          />
+        </div>
+        <div className="rack">
+          <BreathPanel />
+          <EmbouchurePanel />
+          <VoicePanel />
+          <InstrumentPanel />
+          <SpacePanel />
         </div>
         {browser && <PresetBrowser onClose={() => setBrowser(false)} currentName={preset.name} />}
       </div>
@@ -87,8 +70,8 @@ function App() {
 try {
   const root = ReactDOM.createRoot(document.getElementById('root'));
   root.render(<App />);
-  window.__qubeReady = true;
+  window.__didgeReady = true;
 } catch (err) {
-  window.__qubeMountError = String((err && err.stack) || err);
+  window.__didgeMountError = String((err && err.stack) || err);
   throw err;
 }

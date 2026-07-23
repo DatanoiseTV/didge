@@ -1,21 +1,21 @@
 /*
-  Qube — quadraphonic spatial panner
+  Didge — physically modeled didgeridoo
   Copyright (C) 2026 DatanoiseTV
 
-  Framework-free unit tests for the spatial DSP cores. Exit code != 0 on any
-  failure; each check prints its own diagnostic.
+  Framework-free acoustic tests for the physical model. These MEASURE the
+  rendered audio — pitch, spectrum, decay — rather than asserting that the
+  code ran. Exit code != 0 on any failure; each check prints its own
+  diagnostic.
 */
 
-#include "dsp/QuadPanner.h"
-#include "dsp/Motion.h"
-#include "dsp/BinauralRenderer.h"
-#include "dsp/UhjEncoder.h"
-#include "dsp/RoomVerb.h"
-#include "dsp/SpatialEngine.h"
+#include "dsp/DidgeModel.h"
+#include "dsp/DidgeEngine.h"
 
 #include <cmath>
 #include <cstdio>
 #include <vector>
+
+using namespace didge;
 
 static int failures = 0;
 
@@ -29,356 +29,469 @@ static int failures = 0;
         }                                                                   \
     } while (0)
 
-static constexpr float kPi = 3.14159265358979323846f;
+static constexpr double kFs = 48000.0;
 
 // ---------------------------------------------------------------------------
-static void testPanLaw()
-{
-    using namespace qube::quad;
-
-    // Equal power at every azimuth, point source, fully directional.
-    for (int deg = -180; deg <= 180; deg += 3)
-    {
-        const auto g = panGains (static_cast<float> (deg) * kPi / 180.0f, 0.0f, 1.0f);
-        float p = 0.0f;
-        for (auto v : g) p += v * v;
-        CHECK (std::abs (p - 1.0f) < 1.0e-4f, "pan power at %d deg = %f", deg, p);
-    }
-
-    // Front centre: FL == FR, rears silent.
-    {
-        const auto g = panGains (0.0f, 0.0f, 1.0f);
-        CHECK (std::abs (g[0] - g[1]) < 1.0e-5f, "front-centre FL %f != FR %f", g[0], g[1]);
-        CHECK (g[2] < 1.0e-5f && g[3] < 1.0e-5f, "front-centre rears not silent: %f %f", g[2], g[3]);
-        CHECK (std::abs (g[0] - 0.70710678f) < 1.0e-4f, "front-centre FL %f != 1/sqrt2", g[0]);
-    }
-
-    // Hard FL: everything in speaker 0.
-    {
-        const auto g = panGains (-45.0f * kPi / 180.0f, 0.0f, 1.0f);
-        CHECK (std::abs (g[0] - 1.0f) < 1.0e-4f, "hard FL gain %f", g[0]);
-        CHECK (g[1] < 1.0e-4f && g[2] < 1.0e-4f && g[3] < 1.0e-4f, "hard FL leakage %f %f %f", g[1], g[2], g[3]);
-    }
-
-    // Behind: RL == RR.
-    {
-        const auto g = panGains (kPi, 0.0f, 1.0f);
-        CHECK (std::abs (g[2] - g[3]) < 1.0e-4f, "rear-centre RL %f != RR %f", g[2], g[3]);
-        CHECK (g[0] < 1.0e-4f && g[1] < 1.0e-4f, "rear-centre fronts not silent");
-    }
-
-    // Interior blend: at the listener position all four speakers are equal.
-    {
-        const auto g = panGains (0.7f, 0.4f, 0.0f);
-        for (int i = 0; i < 4; ++i)
-            CHECK (std::abs (g[static_cast<size_t> (i)] - 0.5f) < 1.0e-4f, "interior gain[%d] = %f", i, g[static_cast<size_t> (i)]);
-    }
-
-    // Spread: still power-normalised, and pushes energy into neighbours.
-    {
-        const auto g = panGains (0.0f, 1.0f, 1.0f);
-        float p = 0.0f;
-        for (auto v : g) p += v * v;
-        CHECK (std::abs (p - 1.0f) < 1.0e-4f, "spread power %f", p);
-        CHECK (g[2] > 0.01f && g[3] > 0.01f, "full spread should reach the rears: %f %f", g[2], g[3]);
-    }
-}
-
+// Measurement helpers
 // ---------------------------------------------------------------------------
-static void testMotion()
+static float goertzelDb (const std::vector<float>& x, float freq, float fromSec, float toSec)
 {
-    qube::Motion m;
-    m.reset();
-
-    // Orbit at phase 0: at the top of the circle (front), radius scaled.
+    const int a = (int) (fromSec * kFs);
+    const int b = std::min ((int) x.size(), (int) (toSec * kFs));
+    if (b - a <= 0) return -200.0f;
+    const double w = 2.0 * 3.14159265358979 * freq / kFs, c = 2.0 * std::cos (w);
+    double s1 = 0.0, s2 = 0.0;
+    for (int i = a; i < b; ++i)
     {
-        const auto o = m.offsetFor (qube::Motion::Mode::orbit, 0.0, 0.8f, 0.001);
-        CHECK (std::abs (o.dx) < 1.0e-5f && std::abs (o.dy - 0.8f) < 1.0e-5f,
-               "orbit(0) = %f,%f", o.dx, o.dy);
+        const double s0 = x[(size_t) i] + c * s1 - s2;
+        s2 = s1; s1 = s0;
     }
-    // Orbit at quarter phase: right.
-    {
-        const auto o = m.offsetFor (qube::Motion::Mode::orbit, 0.25, 0.8f, 0.001);
-        CHECK (std::abs (o.dx - 0.8f) < 1.0e-5f && std::abs (o.dy) < 1.0e-4f,
-               "orbit(0.25) = %f,%f", o.dx, o.dy);
-    }
-    // Deterministic: same phase, same result (non-random modes are pure).
-    {
-        const auto a = m.offsetFor (qube::Motion::Mode::figure8, 0.37, 0.6f, 0.001);
-        const auto b = m.offsetFor (qube::Motion::Mode::figure8, 0.37, 0.6f, 0.001);
-        CHECK (a.dx == b.dx && a.dy == b.dy, "figure8 not deterministic");
-    }
-    // Random stays inside the radius and moves.
-    {
-        m.reset (1234);
-        float maxR = 0.0f;
-        qube::Motion::Offset last {};
-        bool moved = false;
-        for (int i = 0; i < 2000; ++i)
-        {
-            const auto o = m.offsetFor (qube::Motion::Mode::random, i * 0.01, 0.5f, 0.01);
-            maxR = std::max (maxR, std::sqrt (o.dx * o.dx + o.dy * o.dy));
-            if (i > 10 && (o.dx != last.dx || o.dy != last.dy)) moved = true;
-            last = o;
-        }
-        CHECK (maxR <= 0.5f * 1.45f, "random exceeded radius: %f", maxR);   // sqrt2 corner allowance
-        CHECK (moved, "random walk never moved");
-    }
+    const double n = b - a;
+    const double p = s1 * s1 + s2 * s2 - c * s1 * s2;
+    return 10.0f * (float) std::log10 (std::max (1e-20, p / (n * n / 4.0)));
 }
 
-// ---------------------------------------------------------------------------
-// Measure the phase of a sinusoid in a buffer via exact LSQ projection.
-static float sinePhase (const std::vector<float>& buf, int from, int to, float freq, float fs)
+// Harmonic-sum pitch estimate around a hint. Unbiased over [0.5, 2] x hint and
+// immune to the faint period-doubling a hard-driven lip valve can show, which
+// plain autocorrelation reports as an octave error.
+static float estimateF0 (const std::vector<float>& x, float hint, float from, float to)
 {
-    double sc = 0.0, ss = 0.0;
-    for (int i = from; i < to; ++i)
-    {
-        const double w = 2.0 * M_PI * freq * i / fs;
-        sc += buf[static_cast<size_t> (i)] * std::cos (w);
-        ss += buf[static_cast<size_t> (i)] * std::sin (w);
-    }
-    return static_cast<float> (std::atan2 (sc, ss));
-}
-
-static void testPhaseQuadrature()
-{
-    constexpr float fs = 48000.0f;
-    for (float freq : { 200.0f, 1000.0f, 5000.0f, 10000.0f })
-    {
-        qube::PhaseQuadrature q;
-        q.reset();
-        const int n = 48000;
-        std::vector<float> ref (static_cast<size_t> (n)), sh (static_cast<size_t> (n));
-        for (int i = 0; i < n; ++i)
-        {
-            const float x = std::sin (2.0f * kPi * freq * static_cast<float> (i) / fs);
-            const auto p = q.process (x);
-            ref[static_cast<size_t> (i)] = p.ref;
-            sh[static_cast<size_t> (i)]  = p.shifted;
-        }
-        // Measure over the settled tail.
-        const float pr = sinePhase (ref, n / 2, n, freq, fs);
-        const float psh = sinePhase (sh, n / 2, n, freq, fs);
-        float d = (psh - pr) * 180.0f / kPi;
-        while (d > 180.0f) d -= 360.0f;
-        while (d < -180.0f) d += 360.0f;
-        CHECK (std::abs (d - 90.0f) < 3.0f, "quadrature at %.0f Hz: %f deg", freq, d);
-    }
-}
-
-// ---------------------------------------------------------------------------
-static void testUhj()
-{
-    // A left-positioned source must land louder in L than R; front-centre must
-    // be mono-compatible (L+R carries the signal, no gross cancellation).
-    auto renderUhj = [] (const std::array<float, 4>& gains, float freq, std::vector<float>& L, std::vector<float>& R)
-    {
-        qube::UhjEncoder enc;
-        enc.reset();
-        constexpr int n = 24000;
-        std::vector<float> spk[4];
-        for (auto& s : spk) s.assign (n, 0.0f);
-        for (int i = 0; i < n; ++i)
-        {
-            const float x = std::sin (2.0f * kPi * freq * static_cast<float> (i) / 48000.0f);
-            for (int s = 0; s < 4; ++s)
-                spk[s][static_cast<size_t> (i)] = x * gains[static_cast<size_t> (s)];
-        }
-        L.assign (n, 0.0f); R.assign (n, 0.0f);
-        const float* sp[4] = { spk[0].data(), spk[1].data(), spk[2].data(), spk[3].data() };
-        enc.process (sp, L.data(), R.data(), n);
-    };
-
-    auto energy = [] (const std::vector<float>& b)
+    // Two-stage: a coarse sweep over [0.5, 2] x hint, then a fine sweep around
+    // the winner. A single fine grid costs a Goertzel per candidate per
+    // harmonic over a second of audio, which ran to billions of operations and
+    // made the suite take minutes.
+    auto score = [&] (float f)
     {
         double e = 0.0;
-        for (size_t i = b.size() / 2; i < b.size(); ++i) e += b[i] * b[i];
+        for (int h = 1; h <= 5; ++h)
+            e += std::pow (10.0, goertzelDb (x, f * h, from, to) / 10.0);
         return e;
     };
 
-    std::vector<float> L, R;
+    float bestF = hint;
+    double bestE = -1e300;
+    constexpr int kCoarse = 90;
+    for (int i = 0; i <= kCoarse; ++i)
+    {
+        const float f = hint * (0.5f + 1.5f * (float) i / kCoarse);
+        const double e = score (f);
+        if (e > bestE) { bestE = e; bestF = f; }
+    }
 
-    // Hard left (FL only).
-    renderUhj ({ 1.0f, 0.0f, 0.0f, 0.0f }, 500.0f, L, R);
-    CHECK (energy (L) > energy (R) * 2.0, "UHJ left source: L %f R %f", energy (L), energy (R));
+    const float step = hint * 1.5f / kCoarse;
+    const float lo = bestF - step, hi = bestF + step;
+    for (int i = 0; i <= 40; ++i)
+    {
+        const float f = lo + (hi - lo) * (float) i / 40.0f;
+        const double e = score (f);
+        if (e > bestE) { bestE = e; bestF = f; }
+    }
+    return bestF;
+}
 
-    // Front centre: mono sum survives.
-    renderUhj ({ 0.7071f, 0.7071f, 0.0f, 0.0f }, 500.0f, L, R);
-    std::vector<float> mono (L.size());
-    for (size_t i = 0; i < L.size(); ++i) mono[i] = 0.5f * (L[i] + R[i]);
-    CHECK (energy (mono) > 0.25 * energy (L), "UHJ mono compatibility: mono %f L %f", energy (mono), energy (L));
+static float rmsOf (const std::vector<float>& x, float fromSec, float toSec)
+{
+    const int a = (int) (fromSec * kFs);
+    const int b = std::min ((int) x.size(), (int) (toSec * kFs));
+    if (b <= a) return 0.0f;
+    double s = 0.0;
+    for (int i = a; i < b; ++i) s += (double) x[(size_t) i] * x[(size_t) i];
+    return std::sqrt ((float) (s / (b - a)));
+}
+
+static float noteHz (int note)
+{
+    return 440.0f * std::pow (2.0f, (note - 69) / 12.0f);
+}
+
+// Render a held note and return the mono sum.
+static std::vector<float> hold (DidgeEngine& e, const EngineParams& p, int note,
+                                float seconds, int secondNote = 0)
+{
+    std::vector<float> L (256), R (256), out;
+    const int total = (int) (seconds * kFs);
+    int done = 0;
+    bool sentSecond = false;
+    while (done < total)
+    {
+        const int n = std::min (256, total - done);
+        NoteEvent ev[2];
+        int nev = 0;
+        if (done == 0)
+            ev[nev++] = { 0, NoteEvent::noteOn, note, 0.8f };
+        if (secondNote > 0 && ! sentSecond && done >= (int) (0.4 * kFs))
+        {
+            ev[nev++] = { 0, NoteEvent::noteOn, secondNote, 0.8f };
+            sentSecond = true;
+        }
+        e.process (L.data(), R.data(), n, p, ev, nev);
+        for (int i = 0; i < n; ++i) out.push_back (0.5f * (L[i] + R[i]));
+        done += n;
+    }
+    return out;
 }
 
 // ---------------------------------------------------------------------------
-static void testBinaural()
+// Fractional delay: the loop must never index past the buffer, and read()
+// after write() must be a true d-sample delay.
+// ---------------------------------------------------------------------------
+static void testFracDelay()
 {
-    qube::BinauralRenderer b;
-    b.prepare (48000.0);
+    FracDelay d;
+    d.prepare (64);
+    for (int i = 0; i < 200; ++i)
+    {
+        const float want = (float) i;
+        // Read before write is the contract the waveguides rely on.
+        const float got = d.read (4.0f);
+        d.write (want);
+        if (i >= 4)
+            CHECK (std::abs (got - (want - 4.0f)) < 1.0e-3f,
+                   "FracDelay read(4) at i=%d gave %f, want %f", i, got, want - 4.0f);
+    }
 
-    // FL speaker (index 0): the RIGHT ear (index 1) is contralateral -> it
-    // gets the ITD delay and the head-shadow HF cut.
-    CHECK (b.delaySamplesFor (0, 1) > 0, "FL right-ear ITD = %d", b.delaySamplesFor (0, 1));
-    CHECK (b.delaySamplesFor (0, 0) == 0, "FL left-ear delay = %d", b.delaySamplesFor (0, 0));
-    CHECK (b.hfGainFor (0, 0) > b.hfGainFor (0, 1), "FL shadow: L hf %f should exceed R hf %f",
-           b.hfGainFor (0, 0), b.hfGainFor (0, 1));
-    // Rear speakers darker than fronts on the ipsilateral ear (front/back cue).
-    CHECK (b.hfGainFor (0, 0) > b.hfGainFor (2, 0), "rear should be darker: front %f rear %f",
-           b.hfGainFor (0, 0), b.hfGainFor (2, 0));
+    // Fractional reads interpolate between neighbours, and every delay up to
+    // the maximum must stay finite (no wrap past the end of the buffer).
+    for (float delay = 1.0f; delay <= d.maxDelay(); delay += 0.5f)
+        CHECK (std::isfinite (d.read (delay)), "FracDelay read(%f) not finite", delay);
+}
 
-    // Impulse through FL reaches the left ear earlier and louder.
-    constexpr int n = 256;
-    std::vector<float> spk0 (n, 0.0f), z (n, 0.0f), L (n), R (n);
-    spk0[0] = 1.0f;
-    const float* sp[4] = { spk0.data(), z.data(), z.data(), z.data() };
-    b.process (sp, L.data(), R.data(), n);
-    int firstL = -1, firstR = -1;
+// ---------------------------------------------------------------------------
+// The bore's tuner must agree with the waveguide it describes: ringing the
+// passive tube has to show a resonance where the impedance solver says.
+// ---------------------------------------------------------------------------
+static void testBoreResonance()
+{
+    Bore bore;
+    bore.prepare (kFs);
+    bore.setSmoothing (kFs);
+    BoreShape shape;
+    bore.setShape (shape);
+    bore.tuneTo (73.42f);
+    bore.snapToTargets();
+
+    CHECK (std::abs (bore.droneFrequency() - 73.42f) < 1.0f,
+           "bore tuner placed the peak at %f, want 73.42", bore.droneFrequency());
+
+    // Excite the tube with a rigid mouth and confirm it rings at that peak.
+    std::vector<float> ring;
+    const int n = (int) (2.0 * kFs);
+    ring.reserve ((size_t) n);
     for (int i = 0; i < n; ++i)
     {
-        if (firstL < 0 && std::abs (L[static_cast<size_t> (i)]) > 1.0e-4f) firstL = i;
-        if (firstR < 0 && std::abs (R[static_cast<size_t> (i)]) > 1.0e-4f) firstR = i;
+        const float b = bore.beginStep();
+        const float kick = (i == 0) ? 1000.0f : 0.0f;
+        ring.push_back (bore.finishStep (b * 0.98f + kick));
     }
-    CHECK (firstL >= 0 && firstR > firstL, "ITD arrival: L %d R %d", firstL, firstR);
+
+    const float atPeak = goertzelDb (ring, bore.droneFrequency(), 0.1f, 2.0f);
+    const float below  = goertzelDb (ring, bore.droneFrequency() * 0.75f, 0.1f, 2.0f);
+    const float above  = goertzelDb (ring, bore.droneFrequency() * 1.30f, 0.1f, 2.0f);
+    CHECK (atPeak > below + 10.0f && atPeak > above + 10.0f,
+           "passive bore does not ring at the tuned peak: peak %.1f dB, below %.1f, above %.1f",
+           atPeak, below, above);
 }
 
 // ---------------------------------------------------------------------------
-static void testRoomVerb()
+// A wider bell must actually widen the bore.
+// ---------------------------------------------------------------------------
+static void testBoreShape()
 {
-    qube::RoomVerb rv;
-    rv.prepare (48000.0, 512);
-    rv.setParams (0.5f, 0.5f);
+    Bore narrow, wide;
+    narrow.prepare (kFs);
+    wide.prepare (kFs);
 
-    constexpr int blocks = 300;                 // ~3.2 s
-    std::vector<float> in (512, 0.0f);
-    std::vector<float> out[4];
-    for (auto& o : out) o.assign (512, 0.0f);
+    BoreShape a; a.bell = 0.1f;
+    BoreShape b; b.bell = 0.9f;
+    narrow.setShape (a);
+    wide.setShape (b);
 
-    double earlyEnergy = 0.0, lateEnergy = 0.0;
-    for (int bl = 0; bl < blocks; ++bl)
-    {
-        std::fill (in.begin(), in.end(), 0.0f);
-        if (bl == 0) in[0] = 1.0f;
-        for (auto& o : out) std::fill (o.begin(), o.end(), 0.0f);
-        rv.process (in.data(), { out[0].data(), out[1].data(), out[2].data(), out[3].data() }, 1.0f, 512);
-        double e = 0.0;
-        for (const auto& o : out)
-            for (float v : o)
-            {
-                CHECK (std::isfinite (v), "room NaN at block %d", bl);
-                e += v * v;
-                if (! std::isfinite (v)) return;
-            }
-        if (bl < 20) earlyEnergy += e;
-        if (bl >= blocks - 100) lateEnergy += e;
-    }
-    CHECK (earlyEnergy > 1.0e-6, "room produced no early energy");
-    CHECK (lateEnergy < earlyEnergy * 0.05, "room tail not decaying: early %g late %g", earlyEnergy, lateEnergy);
+    CHECK (wide.segmentRadius (Bore::kSegments - 1) > narrow.segmentRadius (Bore::kSegments - 1) * 1.5f,
+           "bell parameter did not widen the bore: narrow %f, wide %f",
+           narrow.segmentRadius (Bore::kSegments - 1), wide.segmentRadius (Bore::kSegments - 1));
+
+    // The bore must widen from mouth to bell, never pinch shut.
+    for (int i = 0; i < Bore::kSegments; ++i)
+        CHECK (wide.segmentRadius (i) > 0.005f, "bore radius %d collapsed to %f",
+               i, wide.segmentRadius (i));
 }
 
 // ---------------------------------------------------------------------------
-static void testEngine()
+// Pitch: the instrument must sound the note it was asked for, across its
+// range. The engine learns its own length trim, so allow it to settle.
+// ---------------------------------------------------------------------------
+static void testPitchAccuracy()
 {
-    qube::SpatialEngine e;
-    e.prepare (48000.0, 512);
-
-    qube::EngineParams p;
-    p.roomMix = 0.0f;
-    p.distAmount = 0.0f;
-    p.airAbsorb = 0.0f;
-    p.spread = 0.0f;
-    p.outputMode = 1;   // quad
-    qube::TransportInfo tr;
-
-    std::vector<float> inL (512), inR (512);
-    std::vector<float> out[4];
-    for (auto& o : out) o.assign (512, 0.0f);
-    float* outPtr[4] = { out[0].data(), out[1].data(), out[2].data(), out[3].data() };
-
-    auto runBlocks = [&] (int count)
+    EngineParams p;
+    for (int note : { 29, 31, 34, 36, 38, 40, 43, 45, 48, 50 })
     {
-        for (int bl = 0; bl < count; ++bl)
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        const auto m = hold (e, p, note, 4.0f);
+        const float want = noteHz (note);
+        const float got  = estimateF0 (m, want, 3.0f, 4.0f);
+        const float cents = 1200.0f * std::log2 (got / want);
+        CHECK (std::abs (cents) < 12.0f,
+               "note %d wanted %.2f Hz, sounded %.2f Hz (%+.1f cents)", note, want, got, cents);
+        CHECK (rmsOf (m, 3.0f, 4.0f) > 0.005f,
+               "note %d barely speaks: rms %.5f", note, rmsOf (m, 3.0f, 4.0f));
+    }
+}
+
+// ---------------------------------------------------------------------------
+// A didgeridoo drone is buzzy, not sinusoidal: the upper partials must carry
+// real energy, and the second harmonic typically dominates the fundamental.
+// ---------------------------------------------------------------------------
+static void testHarmonicRichness()
+{
+    EngineParams p;
+    DidgeEngine e;
+    e.prepare (kFs, 256);
+    const auto m = hold (e, p, 38, 4.0f);
+    const float f0 = estimateF0 (m, noteHz (38), 3.0f, 4.0f);
+
+    const float h1 = goertzelDb (m, f0,        3.0f, 4.0f);
+    const float h2 = goertzelDb (m, f0 * 2.0f, 3.0f, 4.0f);
+    const float h3 = goertzelDb (m, f0 * 3.0f, 3.0f, 4.0f);
+    const float h5 = goertzelDb (m, f0 * 5.0f, 3.0f, 4.0f);
+
+    CHECK (h2 > h1 - 6.0f, "2nd harmonic %.1f dB too weak against fundamental %.1f dB", h2, h1);
+    CHECK (h3 > h1 - 25.0f, "3rd harmonic %.1f dB too weak against fundamental %.1f dB", h3, h1);
+    CHECK (h5 > h1 - 45.0f, "5th harmonic %.1f dB too weak against fundamental %.1f dB", h5, h1);
+}
+
+// ---------------------------------------------------------------------------
+// The tongue must audibly colour the sound.
+//
+// This deliberately does NOT assert a speech-like direction (say, that "ee"
+// puts more energy near F2 than "oo"). A didgeridoo embouchure leaves the
+// tract closed at the lips as well as at the glottis, so its modes are the
+// half-wave modes of a closed-closed tube, not the quarter-wave formant
+// pattern of open-mouthed speech; asserting speech behaviour would encode a
+// premise the instrument does not obey. What must be true is that moving the
+// vowel control measurably rewrites the spectral envelope.
+// ---------------------------------------------------------------------------
+static void testVowelFormants()
+{
+    auto envelope = [] (const std::vector<float>& x, std::vector<float>& out)
+    {
+        out.clear();
+        for (int h = 4; h <= 40; ++h)
+            out.push_back (goertzelDb (x, noteHz (38) * h, 3.0f, 4.0f));
+    };
+
+    EngineParams ee; ee.vowelX = 1.0f; ee.tractMix = 0.9f;
+    EngineParams oo; oo.vowelX = 0.0f; oo.tractMix = 0.9f;
+    EngineParams off; off.tractMix = 0.0f;
+
+    DidgeEngine e1; e1.prepare (kFs, 256);
+    DidgeEngine e2; e2.prepare (kFs, 256);
+    DidgeEngine e3; e3.prepare (kFs, 256);
+    std::vector<float> a, b, c;
+    envelope (hold (e1, ee,  38, 4.0f), a);
+    envelope (hold (e2, oo,  38, 4.0f), b);
+    envelope (hold (e3, off, 38, 4.0f), c);
+
+    float maxDiff = 0.0f, meanDiff = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i)
+    {
+        const float d = std::abs (a[i] - b[i]);
+        maxDiff = std::max (maxDiff, d);
+        meanDiff += d;
+    }
+    meanDiff /= (float) a.size();
+
+    CHECK (maxDiff > 6.0f,
+           "vowel barely changed the spectrum: max difference only %.1f dB", maxDiff);
+    CHECK (meanDiff > 1.5f,
+           "vowel barely changed the spectrum: mean difference only %.1f dB", meanDiff);
+
+    // And engaging the tract at all must do something.
+    float vsOff = 0.0f;
+    for (size_t i = 0; i < a.size(); ++i)
+        vsOff = std::max (vsOff, std::abs (a[i] - c[i]));
+    CHECK (vsOff > 6.0f, "engaging the vocal tract changed nothing: %.1f dB", vsOff);
+}
+
+// ---------------------------------------------------------------------------
+// Growl adds voiced modulation, so energy must appear away from the drone's
+// own harmonic series.
+// ---------------------------------------------------------------------------
+static void testGrowl()
+{
+    // The voice pitch must be deliberately inharmonic. The default of 19
+    // semitones is 2.997x, so f0 + gf lands on the 4th harmonic and the probe
+    // measures ordinary harmonic energy instead of growl sidebands.
+    EngineParams clean;
+    clean.growlSemis = 7.0f;
+    EngineParams growly = clean;
+    growly.growl = 0.8f;
+
+    DidgeEngine e1; e1.prepare (kFs, 256);
+    DidgeEngine e2; e2.prepare (kFs, 256);
+    const auto a = hold (e1, clean,  38, 4.0f);
+    const auto b = hold (e2, growly, 38, 4.0f);
+
+    const float f0 = estimateF0 (a, noteHz (38), 3.0f, 4.0f);
+    const float gf = f0 * std::pow (2.0f, 7.0f / 12.0f);
+    const float sideClean  = goertzelDb (a, f0 + gf, 3.0f, 4.0f);
+    const float sideGrowly = goertzelDb (b, f0 + gf, 3.0f, 4.0f);
+
+    CHECK (sideGrowly > sideClean + 2.0f,
+           "growl added no sideband energy: clean %.1f dB, growl %.1f dB", sideClean, sideGrowly);
+}
+
+// ---------------------------------------------------------------------------
+// Overblowing: a second, much higher held note must move the instrument to a
+// higher register while the bore stays on the drone.
+// ---------------------------------------------------------------------------
+static void testTootRegister()
+{
+    EngineParams p;
+    DidgeEngine e;
+    e.prepare (kFs, 256);
+    const auto m = hold (e, p, 38, 4.0f, 54);
+
+    const float drone = noteHz (38);
+    const float got = estimateF0 (m, drone * 2.2f, 3.0f, 4.0f);
+    CHECK (got > drone * 1.6f,
+           "overblowing did not reach a higher register: drone %.1f Hz, sounded %.1f Hz",
+           drone, got);
+    CHECK (rmsOf (m, 3.0f, 4.0f) > 0.004f, "overblown register barely speaks");
+}
+
+// ---------------------------------------------------------------------------
+// Silence: with no breath there is no energy source, so the model must fall
+// genuinely silent rather than settle into a low-level limit cycle.
+// ---------------------------------------------------------------------------
+static void testReleaseToSilence()
+{
+    EngineParams p;
+    DidgeEngine e;
+    e.prepare (kFs, 256);
+
+    std::vector<float> L (256), R (256), tail;
+    NoteEvent on { 0, NoteEvent::noteOn, 38, 0.8f };
+    for (int i = 0; i < 560; ++i)
+        e.process (L.data(), R.data(), 256, p, i == 0 ? &on : nullptr, i == 0 ? 1 : 0);
+
+    NoteEvent off { 0, NoteEvent::noteOff, 38, 0.0f };
+    for (int i = 0; i < 800; ++i)
+    {
+        e.process (L.data(), R.data(), 256, p, i == 0 ? &off : nullptr, i == 0 ? 1 : 0);
+        for (int j = 0; j < 256; ++j) tail.push_back (L[j]);
+    }
+
+    const float late = rmsOf (tail, 3.0f, 4.0f);
+    CHECK (late < 1.0e-4f, "instrument never falls silent: tail rms %.3e", late);
+}
+
+// ---------------------------------------------------------------------------
+// Numerical safety: every parameter extreme must stay finite and bounded.
+// ---------------------------------------------------------------------------
+static void testStability()
+{
+    const float lo = 0.0f, hi = 1.0f;
+    int caseIdx = 0;
+    for (float pressure : { lo, 0.5f, hi })
+        for (float damp : { lo, hi })
+            for (float emb : { lo, hi })
+                for (float growl : { lo, hi })
+                {
+                    EngineParams p;
+                    p.pressure = pressure;
+                    p.lipDamp = damp;
+                    p.embouchure = emb;
+                    p.growl = growl;
+                    p.breath = hi;
+                    p.tractMix = hi;
+                    p.shape.bell = (caseIdx % 2) ? hi : lo;
+                    p.shape.flare = (caseIdx % 3) ? hi : lo;
+
+                    DidgeEngine e;
+                    e.prepare (kFs, 256);
+                    const auto m = hold (e, p, 38, 1.5f);
+
+                    float peak = 0.0f;
+                    bool finite = true;
+                    for (float v : m)
+                    {
+                        if (! std::isfinite (v)) finite = false;
+                        peak = std::max (peak, std::abs (v));
+                    }
+                    CHECK (finite, "non-finite output for case %d (pressure %.1f damp %.1f emb %.1f growl %.1f)",
+                           caseIdx, pressure, damp, emb, growl);
+                    CHECK (peak <= 4.0f, "output ran away for case %d: peak %f", caseIdx, peak);
+                    ++caseIdx;
+                }
+}
+
+// ---------------------------------------------------------------------------
+// Sample-rate independence: the sounding pitch must not depend on the rate.
+// ---------------------------------------------------------------------------
+static void testSampleRates()
+{
+    for (double fs : { 44100.0, 96000.0 })
+    {
+        EngineParams p;
+        DidgeEngine e;
+        e.prepare (fs, 256);
+
+        std::vector<float> L (256), R (256), out;
+        NoteEvent on { 0, NoteEvent::noteOn, 38, 0.8f };
+        const int blocks = (int) (4.0 * fs / 256);
+        for (int i = 0; i < blocks; ++i)
         {
-            for (int i = 0; i < 512; ++i)
-            {
-                const float x = std::sin (2.0f * kPi * 440.0f * static_cast<float> (bl * 512 + i) / 48000.0f);
-                inL[static_cast<size_t> (i)] = x;
-                inR[static_cast<size_t> (i)] = x;
-            }
-            const float* inPtr[2] = { inL.data(), inR.data() };
-            e.process (inPtr, 2, outPtr, 4, 512, p, tr);
+            e.process (L.data(), R.data(), 256, p, i == 0 ? &on : nullptr, i == 0 ? 1 : 0);
+            for (int j = 0; j < 256; ++j) out.push_back (0.5f * (L[j] + R[j]));
         }
-    };
 
-    // Hard left-front: FL should dominate FR strongly after smoothing settles.
-    p.posX = -1.0f; p.posY = 1.0f;
-    runBlocks (40);
-    auto chEnergy = [&] (int c)
-    {
-        double s = 0.0;
-        for (float v : out[c]) s += v * v;
-        return s;
-    };
-    (void) chEnergy;
-    // Measure on a fresh block after settle.
-    runBlocks (1);
-    double eFL = 0, eFR = 0, eRL = 0, eRR = 0;
-    for (int i = 0; i < 512; ++i)
-    {
-        eFL += out[0][static_cast<size_t> (i)] * out[0][static_cast<size_t> (i)];
-        eFR += out[1][static_cast<size_t> (i)] * out[1][static_cast<size_t> (i)];
-        eRL += out[2][static_cast<size_t> (i)] * out[2][static_cast<size_t> (i)];
-        eRR += out[3][static_cast<size_t> (i)] * out[3][static_cast<size_t> (i)];
-    }
-    CHECK (eFL > 100.0 * std::max (1.0e-12, eFR), "hard-left FL %g vs FR %g", eFL, eFR);
-    CHECK (eFL > 100.0 * std::max (1.0e-12, eRR), "hard-left FL %g vs RR %g", eFL, eRR);
-    (void) eRL;
-
-    // All finite in every output mode, including mode switches (crossfade).
-    for (int m = 0; m <= 4; ++m)
-    {
-        p.outputMode = m;
-        p.roomMix = 0.4f;
-        p.doppler = 0.5f;
-        p.motionMode = 1;   // orbit
-        p.motionRateHz = 2.0f;
-        runBlocks (20);
-        for (int c = 0; c < 4; ++c)
-            for (float v : out[c])
-                CHECK (std::isfinite (v), "non-finite output in mode %d", m);
-    }
-
-    // Stereo bus: quad request must fall back to binaural, not silence.
-    {
-        std::vector<float> o2[2] { std::vector<float> (512), std::vector<float> (512) };
-        float* o2p[2] = { o2[0].data(), o2[1].data() };
-        p.outputMode = 1;   // quad requested
-        p.roomMix = 0.0f; p.motionMode = 0; p.doppler = 0.0f;
-        const float* inPtr[2] = { inL.data(), inR.data() };
-        for (int bl = 0; bl < 10; ++bl)
-            e.process (inPtr, 2, o2p, 2, 512, p, tr);
-        CHECK (e.lastRenderMode() == qube::RenderMode::binaural, "stereo-bus fallback mode %d",
-               static_cast<int> (e.lastRenderMode()));
-        double eo = 0.0;
-        for (float v : o2[0]) eo += v * v;
-        CHECK (eo > 1.0e-4, "stereo-bus output silent");
+        // Re-measure against this rate rather than the module-level kFs.
+        const float want = noteHz (38);
+        float bestF = want;
+        double bestE = -1e300;
+        for (int i = 0; i <= 1200; ++i)
+        {
+            const float f = want * (0.5f + 1.5f * (float) i / 1200.0f);
+            double acc = 0.0;
+            for (int h = 1; h <= 5; ++h)
+            {
+                const double w = 2.0 * 3.14159265358979 * (f * h) / fs, c = 2.0 * std::cos (w);
+                double s1 = 0.0, s2 = 0.0;
+                const int a = (int) (3.0 * fs), b = (int) (4.0 * fs);
+                for (int k = a; k < b && k < (int) out.size(); ++k)
+                {
+                    const double s0 = out[(size_t) k] + c * s1 - s2;
+                    s2 = s1; s1 = s0;
+                }
+                acc += s1 * s1 + s2 * s2 - c * s1 * s2;
+            }
+            if (acc > bestE) { bestE = acc; bestF = f; }
+        }
+        const float cents = 1200.0f * std::log2 (bestF / want);
+        CHECK (std::abs (cents) < 20.0f,
+               "at %.0f Hz the drone sounded %.2f Hz, want %.2f (%+.1f cents)",
+               fs, bestF, want, cents);
     }
 }
 
-// ---------------------------------------------------------------------------
 int main()
 {
-    testPanLaw();
-    testMotion();
-    testPhaseQuadrature();
-    testUhj();
-    testBinaural();
-    testRoomVerb();
-    testEngine();
+    testFracDelay();
+    testBoreResonance();
+    testBoreShape();
+    testPitchAccuracy();
+    testHarmonicRichness();
+    testVowelFormants();
+    testGrowl();
+    testTootRegister();
+    testReleaseToSilence();
+    testStability();
+    testSampleRates();
 
     if (failures == 0)
-    {
-        std::printf ("qube_dsp_tests: all checks passed\n");
-        return 0;
-    }
-    std::printf ("qube_dsp_tests: %d FAILURE(S)\n", failures);
-    return 1;
+        std::printf ("All DSP tests passed.\n");
+    else
+        std::printf ("%d DSP test(s) FAILED.\n", failures);
+    return failures == 0 ? 0 : 1;
 }

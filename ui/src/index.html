@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Qube</title>
-  <link rel="stylesheet" href="qube.css" />
+  <title>Didge</title>
+  <link rel="stylesheet" href="didge.css" />
   <style>
     /* Diagnostic banner — shown until the React app mounts. If the user sees
        a blank window with no banner, the HTML itself never loaded (resource
@@ -12,20 +12,20 @@
        hides itself via CSS, so production users never see it. */
     #diag {
       position: fixed; top: 8px; left: 8px; right: 8px; z-index: 99999;
-      background: oklch(0.17 0.02 260); color: #dfe6f5;
-      border: 1px solid oklch(0.3 0.03 260); border-radius: 8px;
+      background: #1a120c; color: #f2e6d6;
+      border: 1px solid #3d2a1a; border-radius: 8px;
       padding: 14px 16px; font: 12px/1.55 ui-sans-serif, system-ui, sans-serif;
       display: grid; grid-template-columns: 1fr; gap: 4px;
       box-shadow: 0 18px 40px -10px rgba(0,0,0,.8);
     }
     #diag .row { display: flex; align-items: center; gap: 8px; opacity: 0.5; }
     #diag .row.ok { opacity: 1; }
-    #diag .row.ok .tick { color: #59e2a8; }
+    #diag .row.ok .tick { color: #9ec96a; }
     #diag .row .tick { width: 14px; display: inline-block; text-align: center; }
     #diag .row.ok .tick::before { content: "✓"; }
     #diag .row:not(.ok) .tick::before { content: "·"; }
     #diag .err {
-      background: #2a0e10; color: #ffb3b3; border-top: 1px solid #5a1c20;
+      background: #2a0e0a; color: #ffb3a3; border-top: 1px solid #5a1c14;
       margin: 8px -16px -14px; padding: 10px 16px; border-radius: 0 0 7px 7px;
       font-family: ui-monospace, monospace; font-size: 11px;
       white-space: pre-wrap; word-break: break-word; display: none;
@@ -33,18 +33,18 @@
     #diag .err.on { display: block; }
     #d-reload {
       position: absolute; top: 8px; right: 12px;
-      background: oklch(0.25 0.03 260); color: #dfe6f5;
-      border: 1px solid oklch(0.35 0.04 260); border-radius: 6px;
+      background: #2a1c12; color: #f2e6d6;
+      border: 1px solid #4a3320; border-radius: 6px;
       padding: 4px 10px; font: 11px ui-sans-serif, system-ui, sans-serif;
       cursor: pointer;
     }
-    #d-reload:hover { background: oklch(0.3 0.03 260); }
+    #d-reload:hover { background: #3a2617; }
     body:has(#root > *) #diag { display: none; }
   </style>
 </head>
 <body>
   <div id="diag" aria-live="polite">
-    <button id="d-reload" onclick="window.__qubeReload && window.__qubeReload()">↻ Reload</button>
+    <button id="d-reload" onclick="window.__didgeReload && window.__didgeReload()">↻ Reload</button>
     <div class="row ok" id="d-html"><span class="tick"></span>HTML loaded</div>
     <div class="row" id="d-juce"><span class="tick"></span>juce bridge</div>
     <div class="row" id="d-react"><span class="tick"></span>React</div>
@@ -62,7 +62,7 @@
     };
     window.addEventListener('error',           (e) => fail('JS error: ' + (e.message || e.error) + ' @ ' + (e.filename || '?') + ':' + (e.lineno || '?')));
     window.addEventListener('unhandledrejection', (e) => fail('unhandled rejection: ' + e.reason));
-    window.__qubeReload = function () {
+    window.__didgeReload = function () {
       try {
         if (window.juce && typeof window.juce.getNativeFunction === 'function') {
           window.juce.getNativeFunction('reloadUI')();
@@ -71,11 +71,11 @@
       } catch (_) {}
       try { location.reload(); } catch (_) {}
     };
-    /* Fit-to-window: uniform-scale #plugin (the fixed 1280x840 design canvas)
+    /* Fit-to-window: uniform-scale #plugin (the fixed 1280x860 design canvas)
        to the window. transform: scale() translates pointer events through the
        matrix so drags land on the correct widget. */
     (function () {
-      var DESIGN_W = 1280, DESIGN_H = 840;
+      var DESIGN_W = 1280, DESIGN_H = 720;
       var lastW = 0, lastH = 0;
       function fit() {
         var el = document.getElementById('plugin');
@@ -135,7 +135,7 @@
 
   <script type="text/babel" data-presets="react" src="juce-bridge.jsx"></script>
   <script type="text/babel" data-presets="react" src="knob.jsx"></script>
-  <script type="text/babel" data-presets="react" src="room.jsx"></script>
+  <script type="text/babel" data-presets="react" src="instrument.jsx"></script>
   <script type="text/babel" data-presets="react" src="panels.jsx"></script>
   <script type="text/babel" data-presets="react" src="app.jsx"></script>
   <script type="text/babel" data-presets="react">ok('d-mount');</script>
