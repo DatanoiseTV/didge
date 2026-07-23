@@ -38,3 +38,4 @@ if(APPLE OR WIN32)
         target_link_libraries(didge_state_tests PRIVATE juce::juce_webview2)
     endif()
 endif()
+

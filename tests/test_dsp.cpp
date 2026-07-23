@@ -520,6 +520,47 @@ static void testPitchBend()
 }
 
 // ---------------------------------------------------------------------------
+// Humanising must make successive notes differ, and must do so subtly. Off,
+// the instrument has to stay repeatable.
+// ---------------------------------------------------------------------------
+static void testHumanize()
+{
+    auto spread = [] (float amount)
+    {
+        DidgeEngine e;               // one engine: notes vary against each other
+        e.prepare (kFs, 256);
+        EngineParams p;
+        p.humanize = amount;
+
+        float lo = 1.0e9f, hi = -1.0e9f;
+        for (int rep = 0; rep < 5; ++rep)
+        {
+            const auto m = hold (e, p, 38, 2.5f);
+            const float f = estimateF0 (m, noteHz (38), 1.4f, 2.4f);
+            const float c = 1200.0f * std::log2 (f / noteHz (38));
+            lo = std::min (lo, c);
+            hi = std::max (hi, c);
+
+            // Let it fall silent between notes.
+            std::vector<float> L (256), R (256);
+            NoteEvent off { 0, NoteEvent::noteOff, 38, 0.0f };
+            for (int i = 0; i < 130; ++i)
+                e.process (L.data(), R.data(), 256, p, i == 0 ? &off : nullptr, i == 0 ? 1 : 0);
+        }
+        return hi - lo;
+    };
+
+    const float off = spread (0.0f);
+    const float on  = spread (1.0f);
+
+    CHECK (off < 2.5f, "notes vary with humanising off: %.1f cents spread", off);
+    CHECK (on > off + 1.5f,
+           "humanising did not vary the notes: %.1f cents off, %.1f cents on", off, on);
+    CHECK (on < 25.0f,
+           "humanising is far too strong: %.1f cents spread at maximum", on);
+}
+
+// ---------------------------------------------------------------------------
 // Silence: with no breath there is no energy source, so the model must fall
 // genuinely silent rather than settle into a low-level limit cycle.
 // ---------------------------------------------------------------------------
@@ -726,6 +767,7 @@ int main()
     testDecayStage();
     testVelocityRouting();
     testPitchBend();
+    testHumanize();
     testReleaseToSilence();
     testBoreProfiles();
     testMaterials();

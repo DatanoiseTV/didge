@@ -14,6 +14,12 @@
 #include "ParameterIDs.h"
 #include "ui/WebEditor.h"
 
+namespace
+{
+    // Carried in the state tree beside the parameters.
+    const juce::Identifier kPresetNameProperty { "presetName" };
+}
+
 DidgeAudioProcessor::DidgeAudioProcessor()
     : AudioProcessor (BusesProperties()
                           .withOutput ("Output", juce::AudioChannelSet::stereo(), true)),
@@ -62,6 +68,7 @@ didge::EngineParams DidgeAudioProcessor::buildEngineParams() const
 
     p.velTarget   = static_cast<int> (raw (velTarget));
     p.velAmount   = raw (velAmount);
+    p.humanize    = raw (humanize);
 
     p.tensionSemis = raw (tension);
     p.lipDamp      = raw (lipDamp);
@@ -165,7 +172,15 @@ juce::AudioProcessorEditor* DidgeAudioProcessor::createEditor()
 
 void DidgeAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    if (auto xml = apvts.copyState().createXml())
+    auto state = apvts.copyState();
+
+    // The preset name lives outside the parameter tree, so it has to be put
+    // in by hand. Without this a session reloads with every value the user
+    // left behind but the name of whatever preset was loaded first, shown as
+    // clean -- which reads as though nothing was saved at all.
+    state.setProperty (kPresetNameProperty, presetManager.getCurrentName(), nullptr);
+
+    if (auto xml = state.createXml())
         copyXmlToBinary (*xml, destData);
 }
 
@@ -174,8 +189,12 @@ void DidgeAudioProcessor::setStateInformation (const void* data, int sizeInBytes
     if (auto xml = getXmlFromBinary (data, sizeInBytes))
         if (xml->hasTagName (apvts.state.getType()))
         {
-            apvts.replaceState (juce::ValueTree::fromXml (*xml));
+            const auto state = juce::ValueTree::fromXml (*xml);
+            apvts.replaceState (state);
             snapshotCurrentParams();
+
+            if (state.hasProperty (kPresetNameProperty))
+                presetManager.setCurrentName (state[kPresetNameProperty].toString());
         }
 }
 

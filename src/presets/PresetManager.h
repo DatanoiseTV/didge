@@ -48,6 +48,10 @@ public:
 
     juce::String getCurrentName() const { return currentName; }
 
+    // Restoring session state: the name is stored with the state, since it is
+    // not a parameter and would otherwise be lost on reload.
+    void setCurrentName (const juce::String& name) { currentName = name; }
+
     static juce::File userPresetDirectory();
 
 private:

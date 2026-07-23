@@ -49,7 +49,7 @@ function EmbouchurePanel() {
       </div>
       <div className="krow">
         <PKnob id="bendRange" alt bipolar={false} />
-        <div className="knob spacer-knob" />
+        <PKnob id="humanize" alt />
         <div className="knob spacer-knob" />
       </div>
       <div className="bars">

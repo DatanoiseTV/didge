@@ -33,6 +33,7 @@ namespace didge::ids
     // Performance
     inline constexpr const char* velTarget  = "velTarget";   // choice
     inline constexpr const char* velAmount  = "velAmount";   // 0..1
+    inline constexpr const char* humanize   = "humanize";    // 0..1
 
     // What MIDI velocity is allowed to control. Blowing harder is the natural
     // reading, but a player also tightens up and attacks faster. The order
@@ -139,6 +140,10 @@ namespace didge::ids
                                    velTargetNames, 1));
         add (std::make_unique<P> (juce::ParameterID { velAmount, 1 }, "Velocity Amount",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.6f, attrs (pct)));
+        // Deliberately small at its default: a real player is inconsistent,
+        // but only slightly, and anything audible as an effect is too much.
+        add (std::make_unique<P> (juce::ParameterID { humanize, 1 }, "Humanize",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.35f, attrs (pct)));
 
         // ---- Embouchure -----------------------------------------------------
         add (std::make_unique<P> (juce::ParameterID { tension, 1 }, "Lip Tension",

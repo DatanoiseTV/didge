@@ -67,6 +67,9 @@ All notable changes to Didge are documented here. The format follows
   it produces over a full round trip and solved back into the per-traversal
   filter. Overblowing now also takes more breath, as it does in life, so the
   higher register survives a damped wooden wall.
+- Humanize: an offset drawn once per note plus a slow wander under held notes,
+  covering breath, embouchure and tonguing. Measured at the default setting it
+  moves successive notes by about three cents and a third of a decibel.
 - Ten factory presets, XML user presets.
 - Acoustic test suite that renders audio and measures pitch, spectrum, vowel
   response, growl sidebands, overblowing, silence, numerical stability and

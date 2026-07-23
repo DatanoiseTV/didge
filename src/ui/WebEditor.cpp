@@ -98,7 +98,7 @@ namespace
     // JS side (ui/src). A typo here becomes a dead control at runtime.
     constexpr const char* kFloatIds[] = {
         "pressure", "attack", "release", "vibRate", "vibDepth", "breathNoise",
-        "decay", "sustain", "velAmount",
+        "decay", "sustain", "velAmount", "humanize",
         "tension", "lipDamp", "embouchure", "bendRange",
         "tractMix", "vowelX", "vowelY", "growl", "growlPitch",
         "tune", "bell", "flare", "texture", "wallDamp",

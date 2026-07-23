@@ -89,6 +89,7 @@
     decay:       { label: 'Decay',        map: M.decay,      def: M.decay.from(500),       format: msOf(M.decay) },
     sustain:     { label: 'Sustain',      map: M.unit,       def: 0.0,                     format: pct },
     velAmount:   { label: 'Vel Amount',   map: M.unit,       def: 0.6,                     format: pct },
+    humanize:    { label: 'Humanize',     map: M.unit,       def: 0.35,                    format: pct },
 
     tension:     { label: 'Lip Tension',  map: M.tension,    def: M.tension.from(0),       format: semi(M.tension), bipolar: true },
     lipDamp:     { label: 'Lip Damp',     map: M.unit,       def: 0.18,                    format: pct },

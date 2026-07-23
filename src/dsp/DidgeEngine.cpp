@@ -110,6 +110,14 @@ void PitchTrim::bandSplit (float hz, int& idx, float& frac)
     frac = std::max (0.0f, std::min (1.0f, t - static_cast<float> (idx)));
 }
 
+// Uniform in [-1, 1], its own generator so the audio noise stream is not
+// perturbed by how many notes have been played.
+float DidgeEngine::nextHumanRandom()
+{
+    humRng = humRng * 1664525u + 1013904223u;
+    return (static_cast<float> ((humRng >> 8) & 0xffffff) / 8388608.0f) - 1.0f;
+}
+
 float PitchTrim::forFrequency (float hz) const
 {
     int i; float f;
@@ -234,6 +242,8 @@ void DidgeEngine::reset()
     bpZ1 = bpZ2 = breathLp = 0.0f;
     dcX = dcY = tiltPrev = 0.0f;
     lipDrop = lipOpenGate = 0.0f;
+    humPressure = humTension = humAttack = 0.0f;
+    driftA = driftB = 0.0f;
     lipTraceIdx = lipDecimCount = 0;
     lipTracePeak = 0.0f;
     for (auto& v : lipTrace) v.store (0.0f, std::memory_order_relaxed);
@@ -269,6 +279,11 @@ void DidgeEngine::handleEvent (const NoteEvent& e)
                 transientEnv = 0.4f + 0.6f * e.velocity;   // tongued attack chiff
                 inDecay = false;                           // retrigger the envelope
             }
+            // Fresh inconsistencies for this note. No two notes from a player
+            // start with quite the same breath, embouchure or tonguing.
+            humPressure = nextHumanRandom();
+            humTension  = nextHumanRandom();
+            humAttack   = nextHumanRandom();
             gate = true;
             // Re-arm the learner and re-latch whatever it knows now.
             pitchTrim.noteChanged();
@@ -396,7 +411,18 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     lips.setDamping (0.05f + 0.45f * dampNow);
     lips.setRestOpening (-0.6e-3f + 1.8e-3f * embNow);
 
-    const float bendMul = std::pow (2.0f, (bendSemis + p.tensionSemis) / 12.0f);
+    // Humanising. Two parts: an offset drawn once per note, so repeats are
+    // never identical, and a slow wander that keeps moving under a held note,
+    // because a player's breath and embouchure never truly hold still. Both
+    // are kept well under what reads as an effect -- a couple of cents and a
+    // couple of per cent.
+    const float hum = std::max (0.0f, std::min (1.0f, p.humanize));
+    driftA += (nextHumanRandom() - driftA) * (1.0f - std::exp (-1.0f / (0.55f * fs)));
+    driftB += (nextHumanRandom() - driftB) * (1.0f - std::exp (-1.0f / (1.30f * fs)));
+    const float humPitchSemis = hum * (0.055f * humTension + 0.035f * driftA);
+    const float humPressMul   = 1.0f + hum * (0.045f * humPressure + 0.030f * driftB);
+
+    const float bendMul = std::pow (2.0f, (bendSemis + p.tensionSemis + humPitchSemis) / 12.0f);
 
     // Register: the drone plays at the calibrated embouchure; a second, higher
     // held note tightens the lips onto the bore's next sustaining regime.
@@ -449,13 +475,14 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     // push it stops speaking as soon as the walls are at all damped -- which
     // is exactly what a wooden tube is.
     const float regScale = tootNote >= 0 ? 1.45f : 1.0f;
-    const float pTargetOn = kMaxLungPressure * p.pressure * velScale * regScale
+    const float pTargetOn = kMaxLungPressure * p.pressure * velScale * regScale * humPressMul
                           * std::max (0.0f, std::min (1.5f, ccPressureScale));
 
     // Harder notes speak faster; softer ones ease in.
     float attackMs = std::max (1.0f, p.attackMs);
     if (vt == VelTarget::breathAttack)
         attackMs *= 1.0f - amt * 0.85f * velN;
+    attackMs *= 1.0f + hum * 0.30f * humAttack;
 
     const float lipGlide = 1.0f - std::exp (-1.0f / (0.030f * fs));
     const float envAtk   = 1.0f - std::exp (-1.0f / (std::max (1.0f, attackMs)   * 0.001f * fs));
@@ -477,8 +504,11 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     const float dcR = 1.0f - 6.2831853f * 18.0f / fs;
     const float tiltGain = 0.5f * (fs / 48000.0f);
 
-    // Learning is only meaningful on a steady, un-modulated drone.
+    // Learning is only meaningful on a steady, un-modulated drone. Humanising
+    // moves the pitch by design, so it has to be quiet for the learner to
+    // trust what it hears.
     const bool learnable = tootNote < 0
+                        && hum < 0.02f
                         && std::abs (bendSemis + p.tensionSemis) < 0.05f
                         && p.growl < 0.02f && p.vibDepth < 0.02f;
 

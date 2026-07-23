@@ -57,6 +57,7 @@ the result of simulating air:
 | Vowel / Mouth Open | Moves the tongue, colouring the drone |
 | Growl | Voiced modulation, as if humming while blowing |
 | Velocity | Routable to breath, attack, embouchure or brightness |
+| Humanize | Per-note and continuous inconsistency, so repeats are never identical |
 
 **Bore profile** is the control with the largest effect, because it sets the
 resonance series rather than the tone colour. Twelve profiles are built from

@@ -76,6 +76,67 @@ static void testStateRoundTrip()
     CHECK (std::abs (getParam (b, didge::ids::outGain)  + 6.5f)  < 1.0e-2f, "outGain did not round-trip");
 }
 
+// Every parameter, not a hand-picked few: a control that silently fails to
+// save is indistinguishable from one that does nothing.
+static void testAllParametersRoundTrip()
+{
+    DidgeAudioProcessor a;
+
+    int n = 0;
+    std::vector<std::pair<juce::String, float>> saved;
+    for (auto* p : a.getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (p))
+        {
+            const auto range = rp->getNormalisableRange();
+            const float v = range.snapToLegalValue (
+                range.convertFrom0to1 (0.3f + 0.4f * ((n % 5) / 4.0f)));
+            rp->setValueNotifyingHost (range.convertTo0to1 (v));
+            saved.push_back ({ rp->getParameterID(), rp->convertFrom0to1 (rp->getValue()) });
+            ++n;
+        }
+    CHECK (n >= 25, "expected the full parameter set, saw " << n);
+
+    juce::MemoryBlock blob;
+    a.getStateInformation (blob);
+
+    DidgeAudioProcessor b;
+    b.setStateInformation (blob.getData(), (int) blob.getSize());
+
+    for (const auto& [id, want] : saved)
+    {
+        auto* rp = b.getValueTreeState().getParameter (id);
+        const float got = rp != nullptr ? rp->convertFrom0to1 (rp->getValue()) : -9999.0f;
+        CHECK (std::abs (got - want) <= 1.0e-3f * juce::jmax (1.0f, std::abs (want)),
+               "parameter " << id << " did not survive a save and reload: saved "
+                            << want << ", restored " << got);
+    }
+}
+
+// The preset name is not a parameter, so it has to be stored with the state
+// explicitly. Without it a session reloads with the user's values under some
+// other preset's name, shown as unmodified, which reads as lost work.
+static void testPresetNamePersists()
+{
+    DidgeAudioProcessor a;
+    const auto names = a.getPresetManager().getFactoryNames();
+    CHECK (names.size() > 1, "need more than one factory preset for this test");
+
+    a.getPresetManager().loadByName (names[1]);
+    setParam (a, didge::ids::growl, 0.66f);
+
+    juce::MemoryBlock blob;
+    a.getStateInformation (blob);
+
+    DidgeAudioProcessor b;
+    b.setStateInformation (blob.getData(), (int) blob.getSize());
+
+    CHECK (b.getPresetManager().getCurrentName() == names[1],
+           "preset name lost on reload: expected \"" << names[1]
+           << "\", got \"" << b.getPresetManager().getCurrentName() << "\"");
+    CHECK (std::abs (getParam (b, didge::ids::growl) - 0.66f) < 1.0e-3f,
+           "edits made after loading a preset were lost");
+}
+
 static void testFactoryPresets()
 {
     DidgeAudioProcessor p;
@@ -163,6 +224,8 @@ static void testMidiDrivesTheInstrument()
 int main()
 {
     testStateRoundTrip();
+    testAllParametersRoundTrip();
+    testPresetNamePersists();
     testFactoryPresets();
     testDirtyTracking();
     testBusLayouts();

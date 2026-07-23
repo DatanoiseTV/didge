@@ -41,6 +41,7 @@ struct EngineParams
     // Performance
     int   velTarget  = 1;       // see ids::VelTarget
     float velAmount  = 0.6f;
+    float humanize   = 0.35f;   // 0..1 player inconsistency
     float vibRate    = 4.5f;    // Hz
     float vibDepth   = 0.0f;    // 0..1
     float breath     = 0.25f;   // turbulence noise 0..1
@@ -256,6 +257,13 @@ private:
     int   tootNote  = -1;
     bool  gate = false;
     float noteVelocity = 0.8f;
+
+    // Human inconsistency: fixed offsets drawn per note, plus two slow
+    // wandering signals that never settle while a note is held.
+    float humPressure = 0.0f, humTension = 0.0f, humAttack = 0.0f;
+    float driftA = 0.0f, driftB = 0.0f;
+    std::uint32_t humRng = 0x2545f491u;
+    float nextHumanRandom();
 
     // Envelopes / modulation state
     float pressureEnv = 0.0f;      // Pa
