@@ -47,13 +47,13 @@ namespace
         2.9f,   // cone
         4.8f,   // flared
         3.8f,   // horn
-       -3.5f,   // trumpet
-        9.0f,   // trombone
-        8.5f,   // flugelhorn
-        8.5f,   // french horn
-        3.1f,   // tuba
+        1.2f,   // trumpet
+        4.2f,   // trombone
+        2.2f,   // flugelhorn
+        8.0f,   // french horn
+       10.0f,   // tuba        (wants 11.5; capped)
         1.0f,   // alphorn
-        5.1f,   // contrabass
+       10.0f,   // contrabass  (wants 12.9; capped)
     };
 
     // How far the vocal tract may exceed the bore impedance. Measured values

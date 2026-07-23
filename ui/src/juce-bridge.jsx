@@ -58,14 +58,15 @@
      exponent, and the two end scalings. Only used to draw the cutaway in a
      plain browser; the plugin sends the engine's real radii. */
   const BORE_GEOM = {
-    0:  [0.00, null, 1.00, 1.00], 1: [1.00, 1.0, 1.00, 0.06],
-    2:  [0.00, 1.0,  1.00, 1.00], 3: [0.00, null, 1.00, 1.00],
-    4:  [null, 1.6,  1.00, 1.00],
-    5:  [0.35, 4.0,  0.62, 0.85], 6: [0.52, 3.6, 0.72, 1.05],
-    7:  [0.12, 2.2,  0.78, 1.00], 8: [0.18, 3.2, 0.58, 1.25],
-    9:  [0.10, 2.4,  1.30, 1.45], 10: [0.05, 1.15, 1.10, 1.20],
-    11: [0.08, 2.0,  1.55, 1.60],
+    0:  [0.00, null, 1.00, 1.00, 0], 1: [1.00, 1.0, 1.00, 0.06, 0],
+    2:  [0.00, 1.0,  1.00, 1.00, 0], 3: [0.00, null, 1.00, 1.00, 0],
+    4:  [null, 1.6,  1.00, 1.00, 0],
+    5:  [0.35, 4.0,  0.62, 0.85, 1], 6: [0.52, 3.6, 0.72, 1.05, 1],
+    7:  [0.12, 2.2,  0.78, 1.00, 1], 8: [0.18, 3.2, 0.58, 1.25, 1],
+    9:  [0.10, 2.4,  1.30, 1.45, 1], 10: [0.05, 1.15, 1.10, 1.20, 0],
+    11: [0.08, 2.0,  1.55, 1.60, 1],
   };
+  const CUP_R = 0.0085, THROAT_R = 0.0021;
   const MATERIALS = ['Wood', 'Bamboo', 'Brass', 'Steel', 'Glass'];
 
   const pct  = (n) => Math.round(n * 100) + '%';
@@ -158,9 +159,17 @@
                      : (prof === 3 ? 0.55 + 0.5 * flare : 1 + 3 * flare);
       const rThroat = rMouth * geo[2];
       const rTip = Math.max(rThroat * 1.02, rEnd * geo[3]);
+      // Brass profiles carry a mouthpiece: a wide cup narrowing to a tight
+      // throat, occupying the first two segments (see setShape in the model).
+      const cup = geo[4] === 1;
+      const first = cup ? 2 : 0;
       const bore = [];
-      for (let i = 0; i < 16; i++) {
-        const u0 = i / 15;
+      if (cup) {
+        bore.push(CUP_R * geo[2]);
+        bore.push(THROAT_R * geo[2]);
+      }
+      for (let i = first; i < 16; i++) {
+        const u0 = (i - first) / (15 - first);
         const u = cylFrac >= 0.999 ? 0 : Math.max(0, u0 - cylFrac) / (1 - cylFrac);
         let r = rThroat + (rTip - rThroat) * Math.pow(u, flarePow);
         r *= 1 + texture * 0.055 * u0 * Math.sin(u0 * 21 + 1.3);  // irregularity grows toward the bell

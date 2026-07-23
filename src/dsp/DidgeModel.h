@@ -101,25 +101,25 @@ enum class BoreProfile
 // cylFrac: parallel fraction before the bell. flarePow: bell exponent, larger
 // opens later and faster. mouthMul / bellMul scale the two ends, so the family
 // covers small bright instruments through to very large ones.
-struct BoreGeometry { float cylFrac, flarePow, mouthMul, bellMul; };
+struct BoreGeometry { float cylFrac, flarePow, mouthMul, bellMul; bool cup; };
 
 inline BoreGeometry boreGeometryFor (BoreProfile p, float flare)
 {
     switch (p)
     {
-        case BoreProfile::cylinder:   return { 1.00f, 1.0f,  1.00f, 0.06f };
-        case BoreProfile::cone:       return { 0.00f, 1.0f,  1.00f, 1.00f };
-        case BoreProfile::flared:     return { 0.00f, 0.55f + 0.5f * flare, 1.00f, 1.00f };
-        case BoreProfile::horn:       return { 0.25f + 0.30f * (1.0f - flare), 1.6f, 1.00f, 1.00f };
-        case BoreProfile::trumpet:    return { 0.35f, 4.0f,  0.62f, 0.85f };
-        case BoreProfile::trombone:   return { 0.52f, 3.6f,  0.72f, 1.05f };
-        case BoreProfile::flugelhorn: return { 0.12f, 2.2f,  0.78f, 1.00f };
-        case BoreProfile::frenchHorn: return { 0.18f, 3.2f,  0.58f, 1.25f };
-        case BoreProfile::tuba:       return { 0.10f, 2.4f,  1.30f, 1.45f };
-        case BoreProfile::alphorn:    return { 0.05f, 1.15f, 1.10f, 1.20f };
-        case BoreProfile::contrabass: return { 0.08f, 2.0f,  1.55f, 1.60f };
+        case BoreProfile::cylinder:   return { 1.00f, 1.0f,  1.00f, 0.06f, false };
+        case BoreProfile::cone:       return { 0.00f, 1.0f,  1.00f, 1.00f, false };
+        case BoreProfile::flared:     return { 0.00f, 0.55f + 0.5f * flare, 1.00f, 1.00f, false };
+        case BoreProfile::horn:       return { 0.25f + 0.30f * (1.0f - flare), 1.6f, 1.00f, 1.00f, false };
+        case BoreProfile::trumpet:    return { 0.35f, 4.0f,  0.62f, 0.85f, true };
+        case BoreProfile::trombone:   return { 0.52f, 3.6f,  0.72f, 1.05f, true };
+        case BoreProfile::flugelhorn: return { 0.12f, 2.2f,  0.78f, 1.00f, true };
+        case BoreProfile::frenchHorn: return { 0.18f, 3.2f,  0.58f, 1.25f, true };
+        case BoreProfile::tuba:       return { 0.10f, 2.4f,  1.30f, 1.45f, true };
+        case BoreProfile::alphorn:    return { 0.05f, 1.15f, 1.10f, 1.20f, false };
+        case BoreProfile::contrabass: return { 0.08f, 2.0f,  1.55f, 1.60f, true };
         case BoreProfile::natural:
-        default:                      return { 0.00f, 1.0f + 3.0f * flare, 1.00f, 1.00f };
+        default:                      return { 0.00f, 1.0f + 3.0f * flare, 1.00f, 1.00f, false };
     }
 }
 
@@ -267,18 +267,45 @@ public:
         const float rThroat = kMouthRadius * geo.mouthMul;
         const float rEnd = std::max (rThroat * 1.02f, rBell * geo.bellMul);
 
-        for (int i = 0; i < kSegments; ++i)
+        // A brass mouthpiece is not part of the taper: it is a wide cup
+        // narrowing to a very tight throat before the bore proper. That
+        // constriction against the cup volume is a Helmholtz resonator, and
+        // its resonance is a large part of why brass sounds like brass. It is
+        // also the one place the bore is not monotonic, so it needs its own
+        // two segments -- and they are centimetres long where the bore's are
+        // tens, hence the per-segment length scales.
+        const int first = geo.cup ? 2 : 0;
+        if (geo.cup)
         {
-            const float t = static_cast<float> (i) / static_cast<float> (kSegments - 1);
+            // A tuba mouthpiece is not a trumpet's: cup and throat both scale
+            // with the instrument, and using a trumpet-sized throat on a wide
+            // bore is a severe mismatch that chokes the low instruments.
+            radius[0] = kCupRadius * geo.mouthMul;
+            radius[1] = kThroatRadius * geo.mouthMul;
+            segScale[0] = kCupLenScale;
+            segScale[1] = kThroatLenScale;
+        }
+
+        const int nBore = kSegments - first;
+        for (int i = first; i < kSegments; ++i)
+        {
+            const float t = static_cast<float> (i - first) / static_cast<float> (nBore - 1);
             // Parallel lead pipe, then the bell opens over what is left.
             const float u = geo.cylFrac >= 0.999f
                           ? 0.0f
                           : std::max (0.0f, (t - geo.cylFrac)) / (1.0f - geo.cylFrac);
             float r = rThroat + (rEnd - rThroat) * std::pow (u, geo.flarePow);
             r *= 1.0f + s.texture * 0.22f * wobbleTable (i);
-            radius[i] = std::max (0.006f, r);
+            radius[i] = r;
+            segScale[i] = 1.0f;
+        }
+        for (int i = 0; i < kSegments; ++i)
+        {
+            radius[i] = std::max (0.0015f, radius[i]);
             area[i]   = 3.14159265f * radius[i] * radius[i];
         }
+        scaleSum = 0.0f;
+        for (int i = 0; i < kSegments; ++i) scaleSum += segScale[i];
         for (int i = 0; i < kSegments - 1; ++i)
         {
             const float z1 = 1.0f / area[i];
@@ -326,7 +353,7 @@ public:
             f = firstImpedancePeak (L, f0Target);
         }
         tunedF0 = f;
-        segLenTarget = std::max (1.5f, (L / kSegments) / kSpeedOfSound * fs);
+        segLenTarget = std::max (1.5f, (L / scaleSum) / kSpeedOfSound * fs);
         updateNonlinearity();
         tootF = nextImpedancePeak (L, f * 1.45f, f * 4.2f);
     }
@@ -526,8 +553,9 @@ public:
         {
             const float df = std::max (-nlMax, std::min (nlMax, nlCoeff * fPrev[i]));
             const float db = std::max (-nlMax, std::min (nlMax, nlCoeff * bPrev[i]));
-            const float lf = std::max (1.0f, std::min (maxD, len - df));
-            const float lb = std::max (1.0f, std::min (maxD, len - db));
+            const float li = len * segScale[i];
+            const float lf = std::max (1.0f, std::min (maxD, li - df));
+            const float lb = std::max (1.0f, std::min (maxD, li - db));
             // Wall loss: a broadband scalar plus a one-zero that trims the top,
             // since boundary-layer losses climb with frequency and a rough
             // wall loses more than a polished one.
@@ -682,20 +710,23 @@ private:
         // is describing the loop that actually sounds.
         const cf z1w = std::polar (1.0f, -w);
         const cf lpW = wallLp / (1.0f - (1.0f - wallLp) * z1w);
-        const cf D = std::polar (gSeg, -w * segLenSamples) * lpW;
-        const cf D2 = D * D;
+        auto Dof = [&] (int i)
+        {
+            const cf d = std::polar (gSeg, -w * segLenSamples * segScale[i]) * lpW;
+            return d * d;
+        };
 
         // Bell reflection: -0.995 * onepole lowpass.
         const cf z1 = std::polar (1.0f, -w);
         const cf lp = bellLpCoeff / (1.0f - (1.0f - bellLpCoeff) * z1);
         cf G = -0.995f * lp;
 
-        G *= D2;                                    // through last segment
+        G *= Dof (kSegments - 1);                   // through last segment
         for (int i = kSegments - 2; i >= 0; --i)
         {
             const float k = kTarget[i];
             G = (k + G) / (1.0f + k * G);           // across junction i
-            G *= D2;                                // through segment i
+            G *= Dof (i);                           // through segment i
         }
         return (1.0f + G) / (1.0f - G);
     }
@@ -707,13 +738,13 @@ private:
 
     float firstImpedancePeak (float lengthMeters, float fHint)
     {
-        const float segSamples = std::max (1.5f, (lengthMeters / kSegments) / kSpeedOfSound * fs);
+        const float segSamples = std::max (1.5f, (lengthMeters / scaleSum) / kSpeedOfSound * fs);
         return peakScan (segSamples, std::max (20.0f, fHint * 0.55f), fHint * 1.6f);
     }
 
     float nextImpedancePeak (float lengthMeters, float fLo, float fHi)
     {
-        const float segSamples = std::max (1.5f, (lengthMeters / kSegments) / kSpeedOfSound * fs);
+        const float segSamples = std::max (1.5f, (lengthMeters / scaleSum) / kSpeedOfSound * fs);
         return peakScan (segSamples, fLo, fHi);
     }
 
@@ -759,6 +790,14 @@ private:
 
     FracDelay fwd[kSegments], bwd[kSegments];
     float radius[kSegments] {}, area[kSegments] {};
+    float segScale[kSegments] {};
+    float scaleSum = static_cast<float> (kSegments);
+
+    // Mouthpiece geometry, in metres and in units of a nominal bore segment.
+    static constexpr float kCupRadius     = 0.0085f;
+    static constexpr float kThroatRadius  = 0.0021f;
+    static constexpr float kCupLenScale   = 0.22f;
+    static constexpr float kThroatLenScale = 0.07f;
     float kTarget[kSegments - 1] {}, kJunc[kSegments - 1] {};
     float fOut[kSegments] {}, bOut[kSegments] {};   // beginStep -> finishStep scratch
     float fPrev[kSegments] {}, bPrev[kSegments] {}; // last read, for the nonlinear delay

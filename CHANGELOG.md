@@ -56,6 +56,10 @@ All notable changes to Didge are documented here. The format follows
   the resonance series, so it changes the instrument far more than any single
   knob, and profiles carry a level trim so switching does not jump by the
   18 dB they otherwise differ by.
+- Brass mouthpiece on the brass profiles: a wide cup narrowing to a tight
+  throat, the one non-monotonic part of the bore, modelled with its own two
+  short segments. Its Helmholtz resonance is a large part of the brass timbre
+  and lifted the trombone's spectral centroid from 123 Hz to 553 Hz.
 - Wall material: wood, bamboo, brass, steel or glass, specified by the loss
   it produces over a full round trip and solved back into the per-traversal
   filter. Overblowing now also takes more breath, as it does in life, so the

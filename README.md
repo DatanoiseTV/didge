@@ -77,7 +77,15 @@ together with the bore width at each end:
 | Tuba / Contrabass | little | Very wide bore and bell, large and dark |
 | Alphorn | almost none | Long gentle cone |
 
-Measured on a held D2, the trumpet's spectral centroid is around 700 Hz against
+The brass profiles also carry a **mouthpiece**: a wide cup narrowing to a very
+tight throat before the bore proper. That is the one place the bore is not
+monotonic, and the constriction working against the cup volume is a Helmholtz
+resonator whose resonance is a large part of why brass sounds like brass.
+Adding it moved the trombone's spectral centroid from 123 Hz to 553 Hz and the
+flugelhorn's from 158 Hz to 457 Hz, with harmonics standing above the
+fundamental rather than falling away from it.
+
+Measured on a held D2, the trumpet's spectral centroid is around 670 Hz against
 the natural bore's 195 Hz, and the cylinder's second harmonic sits 12 dB under
 its fundamental where the natural bore's sits 7 dB above. Profiles carry a
 level trim so switching between them does not jump by the 18 dB they otherwise
