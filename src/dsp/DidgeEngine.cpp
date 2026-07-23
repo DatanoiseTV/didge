@@ -372,7 +372,13 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
                            || vt == VelTarget::breathAttack;
 
     const float velScale = velToBreath ? (1.0f - amt) + amt * (0.25f + 0.75f * velN) : 1.0f;
-    const float pTargetOn = kMaxLungPressure * p.pressure * velScale
+
+    // Overblowing takes more breath as well as a firmer lip. The higher
+    // register sits where the bore's losses bite harder, so without the extra
+    // push it stops speaking as soon as the walls are at all damped -- which
+    // is exactly what a wooden tube is.
+    const float regScale = tootNote >= 0 ? 1.45f : 1.0f;
+    const float pTargetOn = kMaxLungPressure * p.pressure * velScale * regScale
                           * std::max (0.0f, std::min (1.5f, ccPressureScale));
 
     // Harder notes speak faster; softer ones ease in.

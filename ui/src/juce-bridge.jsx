@@ -50,6 +50,8 @@
   /* Short forms for the segmented control — the host sees the full names
      from the parameter itself; these only have to fit the panel. */
   const VEL_TARGETS = ['Off', 'Breath', 'Br+Atk', 'Emb', 'Bright'];
+  const BORE_PROFILES = ['Natural', 'Cylinder', 'Cone', 'Flared', 'Horn'];
+  const MATERIALS = ['Wood', 'Bamboo', 'Brass', 'Steel', 'Glass'];
 
   const pct  = (n) => Math.round(n * 100) + '%';
   const msOf = (m) => (n) => { const v = m.to(n); return (v < 10 ? v.toFixed(1) : Math.round(v)) + ' ms'; };
@@ -132,11 +134,20 @@
       const bell = g('bell'), flare = g('flare'), texture = g('texture');
       const rMouth = 0.0145;
       const rEnd = 0.030 + 0.050 * bell;
+      const prof = global.Juce.getComboBoxState('boreProfile').getChoiceIndex();
       const exp = 3.4 - 2.7 * flare;               // low flare = long cylinder, late bell
       const bore = [];
       for (let i = 0; i < 16; i++) {
         const u = i / 15;
-        let r = rMouth + (rEnd - rMouth) * Math.pow(u, exp);
+        let r;
+        if (prof === 1) r = rMouth + (rEnd - rMouth) * 0.06;               // cylinder
+        else if (prof === 2) r = rMouth + (rEnd - rMouth) * u;             // cone
+        else if (prof === 3) r = rMouth * Math.pow(rEnd / rMouth, Math.pow(u, 0.65 + 0.7 * flare));
+        else if (prof === 4) {                                             // horn
+          const knee = 0.25 + 0.30 * (1 - flare);
+          const t = u <= knee ? 0 : (u - knee) / Math.max(0.05, 1 - knee);
+          r = rMouth + (rEnd - rMouth) * Math.pow(t, 1.6);
+        } else r = rMouth + (rEnd - rMouth) * Math.pow(u, exp);            // natural
         r *= 1 + texture * 0.055 * u * Math.sin(u * 21 + 1.3);   // irregularity grows toward the bell
         bore.push(r);
       }
@@ -331,8 +342,11 @@
   }
 
   global.JuceBridge = { useJuceSlider, useJuceToggle, useJuceChoice, useJuceEvent, useEventRef,
-                        emitNative, PARAMS, VOWELS, VEL_TARGETS, M };
+                        emitNative, PARAMS, VOWELS, VEL_TARGETS,
+                        BORE_PROFILES, MATERIALS, M };
   global.PARAMS = PARAMS;
   global.VOWELS = VOWELS;
   global.VEL_TARGETS = VEL_TARGETS;
+  global.BORE_PROFILES = BORE_PROFILES;
+  global.MATERIALS = MATERIALS;
 })(window);

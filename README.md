@@ -56,6 +56,17 @@ the result of simulating air:
 | CC2 / CC11 | Breath and expression scale the blowing pressure |
 | Vowel / Mouth Open | Moves the tongue, colouring the drone |
 | Growl | Voiced modulation, as if humming while blowing |
+| Velocity | Routable to breath, attack, embouchure or brightness |
+
+**Bore profile** is the control with the largest effect, because it sets the
+resonance series rather than the tone colour. *Natural* is the irregular
+termite-hollowed tube. *Cylinder* resonates at odd multiples only and sounds
+hollow and clarinet-like. *Cone* supports the complete harmonic series, which
+is why it reads as reedy and saxophone-like. *Flared* and *Horn* open out late
+and behave like brass. **Material** sets how much the wall loses and how
+sharply that loss rises with frequency: wood is dark and short, metal brighter
+and longer-ringing. **Decay**, off by default, lets the breath run out under a
+held note for short struck sounds.
 
 The instrument tunes itself. The linearised solver places the bore so the
 threshold oscillation lands on the requested note, then a servo measures the
@@ -107,6 +118,11 @@ rate.
   the fix.
 - Lip damping defaults to Q around 3.8. Real human lips measure Q = 0.46 to
   1.8; the Q around 7 common in the literature is an artificial-lip value.
+- **Material is subtler than the name suggests.** Wall loss strong enough to
+  make wood and metal obviously different also stops the overblown register
+  speaking, so the spread is held to about 14 Hz of spectral centroid and a
+  decibel or so in the upper harmonics. Bore profile is the control to reach
+  for when you want a different instrument.
 
 ## References
 

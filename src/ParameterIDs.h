@@ -59,6 +59,17 @@ namespace didge::ids
     inline constexpr const char* flare      = "flare";       // 0..1
     inline constexpr const char* texture    = "texture";     // 0..1
     inline constexpr const char* wallDamp   = "wallDamp";    // 0..1
+    inline constexpr const char* boreProfile= "boreProfile"; // choice
+    inline constexpr const char* material   = "material";    // choice
+
+    // Order must match didge::BoreProfile / didge::BoreMaterial in
+    // dsp/DidgeModel.h.
+    inline const juce::StringArray boreProfileNames {
+        "Natural", "Cylinder", "Cone", "Flared", "Horn"
+    };
+    inline const juce::StringArray materialNames {
+        "Wood", "Bamboo", "Brass", "Steel", "Glass"
+    };
 
     // Output
     inline constexpr const char* spaceMix   = "spaceMix";    // 0..1
@@ -166,6 +177,12 @@ namespace didge::ids
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
         add (std::make_unique<P> (juce::ParameterID { wallDamp, 1 }, "Wall Damping",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
+        // The profile sets the resonance series, which is most of what makes
+        // one wind instrument sound unlike another.
+        add (std::make_unique<Pc> (juce::ParameterID { boreProfile, 1 }, "Bore Profile",
+                                   boreProfileNames, 0));
+        add (std::make_unique<Pc> (juce::ParameterID { material, 1 }, "Material",
+                                   materialNames, 0));
 
         // ---- Output ---------------------------------------------------------
         add (std::make_unique<P> (juce::ParameterID { spaceMix, 1 }, "Space",

@@ -38,6 +38,19 @@ All notable changes to Didge are documented here. The format follows
 - WebView UI with a live cutaway of the instrument driven by the engine's own
   bore profile and vocal tract, plus breath, embouchure, voice, instrument and
   space panels.
+- Optional decay stage: with it switched on the breath falls away under a
+  held note, turning the model into a struck exciter rather than a drone.
+- Velocity routing to breath, breath plus attack, embouchure or brightness --
+  the destinations that follow from blowing harder -- with an amount control
+  and an explicit off.
+- Bore profile: natural, cylinder, cone, flared or horn. This sets the
+  resonance series, so it changes the instrument far more than any single
+  knob: a cylinder resonates at odd multiples only, a cone at every multiple
+  like a saxophone, and the horn behaves like brass.
+- Wall material: wood, bamboo, brass, steel or glass, specified by the loss
+  it produces over a full round trip and solved back into the per-traversal
+  filter. Overblowing now also takes more breath, as it does in life, so the
+  higher register survives a damped wooden wall.
 - Ten factory presets, XML user presets.
 - Acoustic test suite that renders audio and measures pitch, spectrum, vowel
   response, growl sidebands, overblowing, silence, numerical stability and

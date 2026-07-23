@@ -105,7 +105,7 @@ namespace
         "spaceMix", "spaceSize", "outGain",
     };
     constexpr const char* kBoolIds[]   = { "decayOn" };
-    constexpr const char* kChoiceIds[] = { "velTarget" };
+    constexpr const char* kChoiceIds[] = { "velTarget", "boreProfile", "material" };
 
     // Design canvas. The JS fit scaler letterbox-scales #plugin to the window;
     // the editor constrains resize to the same aspect so there are no borders.

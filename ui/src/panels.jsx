@@ -95,6 +95,11 @@ function InstrumentPanel() {
         <PKnob id="wallDamp" alt />
         <div className="knob spacer-knob" />
       </div>
+      {/* The profile decides the resonance series, so it changes the
+          instrument far more than any knob here: a cylinder gives odd
+          harmonics only, a cone the complete series. */}
+      <div className="prow"><PCycle id="boreProfile" options={BORE_PROFILES} label="BORE" /></div>
+      <div className="prow"><PCycle id="material" options={MATERIALS} label="MATERIAL" /></div>
     </div>
   );
 }

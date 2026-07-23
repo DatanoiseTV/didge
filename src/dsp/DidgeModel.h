@@ -79,18 +79,35 @@ private:
 // flare and an irregular wall. The irregularity is a fixed seeded wobble so
 // "texture" is deterministic and preset-stable.
 // ---------------------------------------------------------------------------
+// Which family of bore profile. This is not cosmetic: the profile decides the
+// resonance series, and the series is most of what separates one instrument
+// from another. A cylinder resonates at odd multiples only (1:3:5), a cone at
+// every multiple (1:2:3) like a saxophone, and a horn that flares late behaves
+// like brass. The natural profile is the irregular termite-hollowed tube.
+enum class BoreProfile { natural = 0, cylinder, cone, flared, horn };
+
+// Wall material. Real wall losses grow with frequency (the viscous and thermal
+// boundary layer scales with the square root of it) and rough, porous surfaces
+// lose more than smooth hard ones. So the material sets both a broadband loss
+// and a high-frequency corner: wood is dark and short, metal is bright and
+// rings on.
+enum class BoreMaterial { wood = 0, bamboo, brass, steel, glass };
+
 struct BoreShape
 {
     float bell    = 0.4f;   // 0..1 -> bell radius 18..80 mm
     float flare   = 0.5f;   // 0..1 -> flare exponent (1 = cone, higher = late bell)
     float texture = 0.3f;   // 0..1 -> wall irregularity depth
     float wallDamp = 0.3f;  // 0..1 -> wall losses (hard wood .. soft/leaky)
+    int   profile  = 0;     // BoreProfile
+    int   material = 0;     // BoreMaterial
 
     bool differsFrom (const BoreShape& o) const
     {
         auto d = [] (float a, float b) { return std::abs (a - b) > 1.0e-6f; };
         return d (bell, o.bell) || d (flare, o.flare)
-            || d (texture, o.texture) || d (wallDamp, o.wallDamp);
+            || d (texture, o.texture) || d (wallDamp, o.wallDamp)
+            || profile != o.profile || material != o.material;
     }
 };
 
@@ -194,6 +211,7 @@ public:
         {
             fwd[i].clear(); bwd[i].clear();
             fPrev[i] = bPrev[i] = 0.0f;
+            fLp[i] = bLp[i] = 0.0f;
             pAmp[i] = uAmp[i] = 0.0f;
         }
         uMean = 0.0f;
@@ -207,15 +225,47 @@ public:
     {
         shape = s;
         const float rBell = kMouthRadius + (0.080f - 0.018f) * s.bell;
-        const float exponent = 1.0f + 3.0f * s.flare;
+        const auto prof = static_cast<BoreProfile> (s.profile);
 
         for (int i = 0; i < kSegments; ++i)
         {
             const float t = static_cast<float> (i) / static_cast<float> (kSegments - 1);
-            float r = kMouthRadius + (rBell - kMouthRadius) * std::pow (t, exponent);
+            float r;
+            switch (prof)
+            {
+                case BoreProfile::cylinder:
+                    // Parallel walls: odd harmonics only, hollow and clarinet-like.
+                    r = kMouthRadius + (rBell - kMouthRadius) * 0.06f;
+                    break;
+                case BoreProfile::cone:
+                    // Straight taper. A complete cone resonates at every
+                    // multiple of its fundamental, which is why this reads as
+                    // reedy and saxophone-like rather than as a drone pipe.
+                    r = kMouthRadius + (rBell - kMouthRadius) * t;
+                    break;
+                case BoreProfile::flared:
+                    // Exponential horn: gain rising smoothly with frequency.
+                    r = kMouthRadius * std::pow (rBell / kMouthRadius,
+                                                 std::pow (t, 0.65f + 0.7f * s.flare));
+                    break;
+                case BoreProfile::horn:
+                {
+                    // Brass layout: a long cylindrical run, then a bell that
+                    // opens fast near the very end.
+                    const float knee = 0.25f + 0.30f * (1.0f - s.flare);
+                    const float u = t <= knee ? 0.0f : (t - knee) / std::max (0.05f, 1.0f - knee);
+                    r = kMouthRadius + (rBell - kMouthRadius) * std::pow (u, 1.6f);
+                    break;
+                }
+                case BoreProfile::natural:
+                default:
+                    r = kMouthRadius + (rBell - kMouthRadius)
+                                     * std::pow (t, 1.0f + 3.0f * s.flare);
+                    break;
+            }
             r *= 1.0f + s.texture * 0.22f * wobbleTable (i);
-            radius[i] = r;
-            area[i]   = 3.14159265f * r * r;
+            radius[i] = std::max (0.006f, r);
+            area[i]   = 3.14159265f * radius[i] * radius[i];
         }
         for (int i = 0; i < kSegments - 1; ++i)
         {
@@ -224,11 +274,25 @@ public:
             kTarget[i] = (z2 - z1) / (z2 + z1);
         }
 
-        // Wall losses: per-direction per-segment scalar so the full round trip
-        // (2N passes) lands on the wanted loop gain. Bell keeps a fixed
-        // near-unity magnitude; its lowpass supplies the HF loss.
-        const float roundTrip = 0.995f - 0.12f * s.wallDamp;
+        // Wall losses. The material sets how much is lost overall and how
+        // sharply the loss rises with frequency; wallDamp trims around it.
+        // Per-direction per-segment scalars, so the full round trip (2N
+        // passes) lands on the wanted loop gain.
+        // Material is specified by what it does over a whole round trip at a
+        // reference frequency, then the per-traversal filter is solved to
+        // deliver it. Specifying the filter directly does not work: thirty-two
+        // traversals accumulate, so a one-pole at a musical corner strangles
+        // the loop, while a one-zero gentle enough to be safe only removes
+        // about 2 dB at 2 kHz and the material is then inaudible.
+        static constexpr float matLoss[] = { 0.9950f, 0.9962f, 0.9975f, 0.9982f, 0.9987f };
+        static constexpr float matHfDb[] = { -2.0f,  -1.3f,  -0.55f,  -0.3f,   -0.15f };
+        const int mi = std::max (0, std::min (4, s.material));
+
+        const float roundTrip = matLoss[mi] - 0.12f * s.wallDamp;
         gSeg = std::pow (roundTrip, 1.0f / (2.0f * kSegments));
+
+        const float hfDb = matHfDb[mi] * (1.0f + 1.4f * s.wallDamp);
+        wallLp = solveWallPole (hfDb);
 
         // Open-end reflection turns into radiation around ka ~ 1.
         const float fc = kSpeedOfSound / (6.2831853f * rBell) * 0.85f;
@@ -443,8 +507,13 @@ public:
             const float db = std::max (-nlMax, std::min (nlMax, nlCoeff * bPrev[i]));
             const float lf = std::max (1.0f, std::min (maxD, len - df));
             const float lb = std::max (1.0f, std::min (maxD, len - db));
-            fOut[i] = fwd[i].read (lf) * gSeg;   // arrives at right end of segment i
-            bOut[i] = bwd[i].read (lb) * gSeg;   // arrives at left end of segment i
+            // Wall loss: a broadband scalar plus a one-zero that trims the top,
+            // since boundary-layer losses climb with frequency and a rough
+            // wall loses more than a polished one.
+            fLp[i] += wallLp * (fwd[i].read (lf) * gSeg - fLp[i]) + 1.0e-20f;
+            bLp[i] += wallLp * (bwd[i].read (lb) * gSeg - bLp[i]) + 1.0e-20f;
+            fOut[i] = fLp[i];   // right end of segment i
+            bOut[i] = bLp[i];   // left end of segment i
             fPrev[i] = fOut[i];
             bPrev[i] = bOut[i];
         }
@@ -528,6 +597,34 @@ public:
     }
 
 private:
+    // One-pole coefficient giving `targetDb` of loss over a full round trip
+    // (2 * kSegments traversals) at kWallRefHz. Bisection: the magnitude is
+    // monotonic in the coefficient, and this runs only when the bore changes.
+    float solveWallPole (float targetDb) const
+    {
+        // Referenced where this instrument actually keeps its energy. At 2 kHz the
+        // spectrum is already 40 dB down, so a filter specified up there changes
+        // almost nothing audible however aggressive it is.
+        constexpr float kWallRefHz = 900.0f;
+        const float w = 6.2831853f * std::min (kWallRefHz, 0.45f * fs) / fs;
+        const float cosw = std::cos (w);
+        const float wantPer = std::pow (10.0f, targetDb / (20.0f * 2.0f * kSegments));
+
+        auto mag = [&] (float a)
+        {
+            const float b = 1.0f - a;
+            return a / std::sqrt (std::max (1.0e-12f, 1.0f + b * b - 2.0f * b * cosw));
+        };
+
+        float lo = 0.02f, hi = 1.0f;
+        for (int i = 0; i < 40; ++i)
+        {
+            const float mid = 0.5f * (lo + hi);
+            if (mag (mid) < wantPer) lo = mid; else hi = mid;
+        }
+        return 0.5f * (lo + hi);
+    }
+
     // Deterministic per-segment wall irregularity in [-1, 1], smoothed.
     static float wobbleTable (int i)
     {
@@ -560,7 +657,11 @@ private:
     {
         using cf = std::complex<float>;
         const float w = 6.2831853f * freq / fs;
-        const cf D = std::polar (gSeg, -w * segLenSamples);
+        // Same per-traversal loss the running waveguide applies, so the tuner
+        // is describing the loop that actually sounds.
+        const cf z1w = std::polar (1.0f, -w);
+        const cf lpW = wallLp / (1.0f - (1.0f - wallLp) * z1w);
+        const cf D = std::polar (gSeg, -w * segLenSamples) * lpW;
         const cf D2 = D * D;
 
         // Bell reflection: -0.995 * onepole lowpass.
@@ -643,6 +744,8 @@ private:
     float nlCoeff = 0.0f;
 
     // Visualisation envelopes of the standing wave.
+    float fLp[kSegments] {}, bLp[kSegments] {};   // wall-loss filter state
+    float wallLp = 1.0f;
     float pAmp[kSegments] {}, uAmp[kSegments] {};
     float uMean = 0.0f;
     float envAttack = 0.02f, envRelease = 0.0015f;
