@@ -187,10 +187,14 @@ public:
     // sitting in a mix with its window closed pays nothing for it.
     void setSpectrumEnabled (bool on) { spectrumOn.store (on, std::memory_order_relaxed); }
 
-    // Output spectrum for the display, in dBFS per log-spaced band.
-    static constexpr int kSpectrumBands = Spectrum::kBands;
-    float vizSpectrum (int i) const { return vSpec[i].load (std::memory_order_relaxed); }
-    float spectrumBandHz (int i) const { return spectrum.centreHz (i); }
+    // Output spectrum for the display: level and slow-falling peak hold per
+    // log-spaced display point, plus the tracked partials.
+    static constexpr int kSpectrumBins  = Spectrum::kBins;
+    static constexpr int kSpectrumPeaks = Spectrum::kPeaks;
+    float vizSpectrum (int i)     const { return vSpec[i].load (std::memory_order_relaxed); }
+    float vizSpectrumPeak (int i) const { return vSpecPk[i].load (std::memory_order_relaxed); }
+    float vizPeakHz (int i)       const { return vPeakHz[i].load (std::memory_order_relaxed); }
+    float vizPeakDb (int i)       const { return vPeakDb[i].load (std::memory_order_relaxed); }
     float vizTurbulence()         const { return vTurb.load (std::memory_order_relaxed); }
 
     // One cycle-ish of the lip opening, decimated, so the UI can draw the
@@ -263,7 +267,10 @@ private:
     std::atomic<float> vPress[Bore::kSegments];
     std::atomic<float> vFlowSeg[Bore::kSegments];
     std::atomic<float> vMeanFlow { 0.0f }, vTurb { 0.0f };
-    std::atomic<float> vSpec[Spectrum::kBands];
+    std::atomic<float> vSpec[Spectrum::kBins];
+    std::atomic<float> vSpecPk[Spectrum::kBins];
+    std::atomic<float> vPeakHz[Spectrum::kPeaks];
+    std::atomic<float> vPeakDb[Spectrum::kPeaks];
     std::atomic<bool>  spectrumOn { false };
 
     // Lip-trace capture: decimated so the stored window spans a few periods

@@ -487,9 +487,23 @@ void WebEditor::emitLevels()
         flowSeg.add (juce::var (engine.vizBoreFlow (i)));
     }
 
-    juce::Array<juce::var> spec;
-    for (int i = 0; i < didge::DidgeEngine::kSpectrumBands; ++i)
-        spec.add (juce::var (engine.vizSpectrum (i)));
+    // Rounded to whole decibels: the display cannot show more than that, and
+    // it keeps the payload small enough to push at the UI frame rate.
+    juce::Array<juce::var> spec, specPk;
+    for (int i = 0; i < didge::DidgeEngine::kSpectrumBins; ++i)
+    {
+        spec.add   (juce::var ((int) std::lround (engine.vizSpectrum (i))));
+        specPk.add (juce::var ((int) std::lround (engine.vizSpectrumPeak (i))));
+    }
+
+    juce::Array<juce::var> peaks;
+    for (int i = 0; i < didge::DidgeEngine::kSpectrumPeaks; ++i)
+    {
+        juce::DynamicObject::Ptr pk = new juce::DynamicObject();
+        pk->setProperty ("f",  engine.vizPeakHz (i));
+        pk->setProperty ("db", engine.vizPeakDb (i));
+        peaks.add (juce::var (pk.get()));
+    }
 
     juce::Array<juce::var> lipWave;
     for (int i = 0; i < didge::DidgeEngine::kLipTraceLen; ++i)
@@ -510,6 +524,8 @@ void WebEditor::emitLevels()
     root->setProperty ("flowSeg",    juce::var (flowSeg));
     root->setProperty ("lipWave",    juce::var (lipWave));
     root->setProperty ("spec",       juce::var (spec));
+    root->setProperty ("specPk",     juce::var (specPk));
+    root->setProperty ("peaks",      juce::var (peaks));
     root->setProperty ("meanFlow",   engine.vizMeanFlow());
     root->setProperty ("turb",       engine.vizTurbulence());
 

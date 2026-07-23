@@ -213,17 +213,33 @@
         flowSeg.push(Math.abs(Math.sin(u * mode * Math.PI / 2)) * env * 4e-4 + 2e-5 * env);
       }
 
-      /* Output spectrum, 32 log-spaced bands from 45 Hz to 12 kHz. The mock
-         builds a harmonic series over a falling floor so the display can be
-         checked without a backend. */
-      const spec = [];
-      for (let i = 0; i < 32; i++) {
-        const fb = 45 * Math.pow(12000 / 45, i / 31);
+      /* Output spectrum: 256 log-spaced display points from 40 Hz to 16 kHz,
+         matching Spectrum::kBins and its range in dsp/Spectrum.h. The mock
+         lays a harmonic series over a falling floor so the drawing, the peak
+         hold and the partial tracking can all be checked without a backend. */
+      const SPEC_N = 256, SPEC_LO = 40, SPEC_HI = 16000;
+      const spec = [], specPk = [];
+      const envDb = 20 * Math.log10(Math.max(1e-3, env));
+      for (let i = 0; i < SPEC_N; i++) {
+        const fb = SPEC_LO * Math.pow(SPEC_HI / SPEC_LO, i / (SPEC_N - 1));
         const hn = fb / f0;
         const near = Math.abs(hn - Math.round(hn));
-        const harmonic = Math.round(hn) >= 1 && near < 0.16 ? 16 * (1 - near / 0.16) : 0;
-        const tilt = -14 * Math.log2(Math.max(1, fb / 90));
-        spec.push(Math.max(-90, -26 + tilt + harmonic + 20 * Math.log10(Math.max(1e-3, env))));
+        const nh = Math.round(hn);
+        // Partials are narrow: a display point only lights up when it is
+        // genuinely on one, which is the whole point of the finer resolution.
+        const width = 0.055 + 0.004 * nh;
+        const onPartial = nh >= 1 && near < width;
+        const partial = onPartial ? 30 * (1 - near / width) - 2.2 * nh : 0;
+        const floor = -74 - 9 * Math.log2(Math.max(1, fb / 200));
+        const v = Math.max(-108, floor + partial + envDb + 26);
+        spec.push(Math.round(v));
+        specPk.push(Math.round(v + 1.5));
+      }
+
+      const peaks = [];
+      for (let h = 1; h <= 6; h++) {
+        peaks.push({ f: f0 * h * (1 + 0.0008 * Math.sin(t + h)),
+                     db: -34 - 2.4 * h + envDb + 26 });
       }
 
       /* Lip opening over ~3 periods. The lips beat shut for part of every
@@ -237,7 +253,7 @@
 
       return {
         out: [db, db - 0.6 - 0.4 * Math.sin(t * 1.7)],
-        press, flowSeg, lipWave, spec,
+        press, flowSeg, lipWave, spec, specPk, peaks,
         meanFlow: 2.2e-4 * env,
         turb: g('breathNoise') * env,
         pressure: env,

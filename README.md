@@ -104,11 +104,17 @@ past threshold, and how sharp it plays depends almost entirely on bore shape
 and blowing pressure — from about 10 to 180 cents on this model, which no fixed
 correction curve covers.
 
-The panel behind the instrument is a live spectrum analyser: 32 log-spaced
-constant-Q bands from 45 Hz to 12 kHz. It is a filter bank rather than an FFT
-because the display wants a log axis anyway — a linear FFT would crowd
-everything above the first octave into a few bins and barely resolve the bottom,
-which is where this instrument lives. It runs only while the editor is open.
+The strip along the bottom of the instrument panel is a live analyser: an FFT
+sized for roughly 12 Hz per bin, drawn over 256 log-spaced display points from
+40 Hz to 16 kHz, with a slow-falling peak hold and the six strongest partials
+tracked and labelled with their measured frequency. Partial frequencies are
+recovered by fitting a parabola across each peak, so they are reported far
+finer than the bin spacing. It runs only while the editor is open.
+
+This began as a constant-Q filter bank, which was the wrong instrument for the
+job: at a quarter-octave the bands are wider than the 73 Hz spacing of this
+drone's harmonics above about the third, so everything merged into an envelope.
+The FFT resolves them and, per sample, costs less than thirty-two filters did.
 
 ## Building
 

@@ -651,8 +651,18 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     }
     vMeanFlow.store (bore.meanFlow(), std::memory_order_relaxed);
     if (analyse)
-        for (int i = 0; i < Spectrum::kBands; ++i)
-            vSpec[i].store (spectrum.levelDb (i), std::memory_order_relaxed);
+    {
+        for (int i = 0; i < Spectrum::kBins; ++i)
+        {
+            vSpec[i].store (spectrum.binDb (i), std::memory_order_relaxed);
+            vSpecPk[i].store (spectrum.binPeakDb (i), std::memory_order_relaxed);
+        }
+        for (int i = 0; i < Spectrum::kPeaks; ++i)
+        {
+            vPeakHz[i].store (spectrum.peakFreq (i), std::memory_order_relaxed);
+            vPeakDb[i].store (spectrum.peakLevel (i), std::memory_order_relaxed);
+        }
+    }
     vTurb.store (std::min (1.5f, p.breath + 0.9f * transientEnv)
                  * (pressureEnv / kMaxLungPressure), std::memory_order_relaxed);
 

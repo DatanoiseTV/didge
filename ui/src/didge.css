@@ -200,8 +200,14 @@ html, body {
 }
 /* Addressed by class, not position: adding a label ahead of these paths
    silently broke a :first-child rule and the bars rendered black. */
-.iv-specbars { fill: url(#specg); }
-.iv-specpeak { stroke: rgba(255, 214, 165, 0.7); stroke-width: 1.2; }
+.iv-specfill { fill: url(#specg); }
+.iv-specpeak { stroke: rgba(255, 226, 186, 0.75); stroke-width: 1; }
+.iv-peak line { stroke: rgba(120, 220, 255, 0.75); stroke-width: 1; }
+.iv-peak circle { fill: #78dcff; }
+.iv-peak text {
+  fill: rgba(150, 225, 255, 0.95); font-size: 7.5px; text-anchor: middle;
+  font-family: var(--mono); letter-spacing: 0.03em;
+}
 
 /* Pressure nodes — the cross-sections the standing wave is not pushing on. */
 .iv-node {

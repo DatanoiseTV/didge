@@ -71,16 +71,18 @@ const DEFAULT_BORE = [0.0145, 0.0146, 0.0151, 0.0158, 0.0168, 0.0182, 0.0198, 0.
 const DEFAULT_TRACT = [1.44, 2.92, 3.58, 2.56, 1.72, 2.08, 3.08, 3.80];
 const ZERO16 = new Array(16).fill(0);
 const ZERO96 = new Array(96).fill(0);
-const SPEC_N = 32;
-const SPEC_FLOOR = new Array(SPEC_N).fill(-90);
+/* Must match Spectrum::kBins and its range in dsp/Spectrum.h. */
+const SPEC_N = 256, SPEC_LO = 40, SPEC_HI = 16000, SPEC_DB = -104;
+const SPEC_FLOOR = new Array(SPEC_N).fill(SPEC_DB);
+const specX = (f) => SPEC_X0 + (Math.log(f / SPEC_LO) / Math.log(SPEC_HI / SPEC_LO)) * (SPEC_X1 - SPEC_X0);
 
 const N_PARTICLES = 130;
 
-/* The analyser is a contained strip along the bottom right, sharing that row
-   with the lip-opening trace on the left. Drawn full-panel behind the
-   instrument it read as an opaque silhouette competing with the cutaway
+/* A strip along the bottom, clear of the bore's lower wall, wide enough that
+   256 display points each get their own few pixels. Drawn full-panel behind
+   the instrument it read as an opaque silhouette competing with the cutaway
    rather than as a readout. */
-const SPEC_X0 = 470, SPEC_X1 = 1240, SPEC_Y0 = 236, SPEC_Y1 = 288;
+const SPEC_X0 = 250, SPEC_X1 = 1244, SPEC_Y0 = 232, SPEC_Y1 = 290;
 
 function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMix = 0.5, wallDamp = 0.3 }) {
   const lv = JuceBridge.useEventRef('levels', {
@@ -88,7 +90,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
     f0: 73.42, toot: 199, tootActive: false, playing: false,
     bore: DEFAULT_BORE, tract: DEFAULT_TRACT,
     press: ZERO16, flowSeg: ZERO16, lipWave: ZERO96, meanFlow: 0, turb: 0,
-    spec: SPEC_FLOOR,
+    spec: SPEC_FLOOR, specPk: SPEC_FLOOR, peaks: [],
   });
 
   /* Params the loop reads without re-subscribing. */
@@ -101,6 +103,8 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
   const grainRef = useRef(null);
   const specRef = useRef(null);
   const specLineRef = useRef(null);
+  const peakRefs = [useRef(null), useRef(null), useRef(null),
+                    useRef(null), useRef(null), useRef(null)];
   const waveRef = useRef(null);
   const waveLineRef = useRef(null);
   const nodeRef = useRef(null);
@@ -129,7 +133,6 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
     let raf = 0, last = performance.now();
     let phase = 0, level = 0, lipSm = 0, glowSm = 0, turbSm = 0;
     const specSm = new Array(SPEC_N).fill(0);
-    const specPk = new Array(SPEC_N).fill(0);
 
     const xs = [];
     for (let i = 0; i < 16; i++) xs.push(BORE_X0 + (i / 15) * BORE_SPAN);
@@ -390,38 +393,49 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         el.setAttribute('opacity', ((1 - s) * 0.5 * glowSm).toFixed(3));
       }
 
-      /* ---- output spectrum, behind everything ----
-         Log frequency across the panel, dBFS up. Drawn as a filled curve
-         rather than bars so it reads as a backdrop and does not compete with
-         the cutaway sitting on top of it. Smoothed toward the incoming
-         levels so it settles rather than flickers between frames. */
+      /* ---- output spectrum ----
+         256 log-spaced points, so the drone's partials stand as separate
+         lines instead of merging into an envelope. Live level as a filled
+         curve, slow-falling peak hold as a line above it, and the tracked
+         partials marked with their measured frequency. */
       const sp = (L.spec && L.spec.length === SPEC_N) ? L.spec : SPEC_FLOOR;
-      for (let i = 0; i < SPEC_N; i++) {
-        const target = Math.max(0, Math.min(1, (sp[i] + 72) / 66));
-        specSm[i] += (target - specSm[i]) * (1 - Math.exp(-dt / (target > specSm[i] ? 0.02 : 0.14)));
-      }
-      // Bars, one per band. A filled curve reads as a solid shape at this
-      // size; discrete bars read immediately as a level readout.
-      const bw = (SPEC_X1 - SPEC_X0) / SPEC_N;
-      const barW = bw * 0.58;
-      const span = SPEC_Y1 - SPEC_Y0;
-      let sd = '';
-      for (let i = 0; i < SPEC_N; i++) {
-        const h = Math.max(0.8, specSm[i] * span);
-        const x = SPEC_X0 + i * bw + (bw - barW) * 0.5;
-        sd += `M ${x.toFixed(1)} ${(SPEC_Y1 - h).toFixed(1)} h ${barW.toFixed(1)} v ${h.toFixed(1)} h ${(-barW).toFixed(1)} Z `;
-      }
-      if (specRef.current) specRef.current.setAttribute('d', sd);
+      const spk = (L.specPk && L.specPk.length === SPEC_N) ? L.specPk : SPEC_FLOOR;
+      const sh = SPEC_Y1 - SPEC_Y0;
+      const norm = (db) => Math.max(0, Math.min(1, (db - SPEC_DB) / (-6 - SPEC_DB)));
 
-      // Slow-falling peak caps, so transients stay visible for a moment.
+      let sd = `M ${SPEC_X0} ${SPEC_Y1}`;
       let sc = '';
       for (let i = 0; i < SPEC_N; i++) {
-        specPk[i] = Math.max(specSm[i], specPk[i] - dt * 0.55);
-        const y = SPEC_Y1 - Math.max(1.2, specPk[i] * span);
-        const x = SPEC_X0 + i * bw + (bw - barW) * 0.5;
-        sc += `M ${x.toFixed(1)} ${y.toFixed(1)} h ${barW.toFixed(1)} `;
+        const x = SPEC_X0 + (i / (SPEC_N - 1)) * (SPEC_X1 - SPEC_X0);
+        const target = norm(sp[i]);
+        // Rise immediately, fall gently: a spectrum that decays too fast
+        // strobes, one that decays too slowly smears the partials together.
+        specSm[i] += (target - specSm[i]) * (1 - Math.exp(-dt / (target > specSm[i] ? 0.008 : 0.10)));
+        sd += ` L ${x.toFixed(1)} ${(SPEC_Y1 - specSm[i] * sh).toFixed(1)}`;
+        sc += (i ? ' L ' : 'M ') + x.toFixed(1) + ' ' + (SPEC_Y1 - norm(spk[i]) * sh).toFixed(1);
       }
+      sd += ` L ${SPEC_X1} ${SPEC_Y1} Z`;
+      if (specRef.current) specRef.current.setAttribute('d', sd);
       if (specLineRef.current) specLineRef.current.setAttribute('d', sc);
+
+      /* Tracked partials: a tick at each, labelled with the frequency the
+         model actually measured rather than the nearest display point. */
+      const pks = Array.isArray(L.peaks) ? L.peaks : [];
+      for (let i = 0; i < peakRefs.length; i++) {
+        const g = peakRefs[i].current;
+        if (!g) continue;
+        const pk = pks[i];
+        if (!pk || !(pk.f > SPEC_LO) || pk.f > SPEC_HI || pk.db < SPEC_DB + 12) {
+          g.setAttribute('opacity', '0');
+          continue;
+        }
+        const x = specX(pk.f);
+        const y = SPEC_Y1 - norm(pk.db) * sh;
+        g.setAttribute('opacity', (i === 0 ? 0.95 : 0.6).toFixed(2));
+        g.setAttribute('transform', `translate(${x.toFixed(1)} ${y.toFixed(1)})`);
+        const t = g.querySelector('text');
+        if (t) t.textContent = pk.f >= 1000 ? (pk.f / 1000).toFixed(2) + 'k' : pk.f.toFixed(0);
+      }
 
       /* ---- readouts ---- */
       const toot = !!L.tootActive;
@@ -536,21 +550,25 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
 
         {/* output spectrum */}
         <g className="iv-spec">
-          <text className="iv-cap dim" x={SPEC_X0} y={SPEC_Y0 - 6}>OUTPUT SPECTRUM</text>
+          <text className="iv-cap dim" x={SPEC_X0} y={SPEC_Y0 - 5}>OUTPUT SPECTRUM</text>
           <line className="iv-specbase" x1={SPEC_X0} y1={SPEC_Y1} x2={SPEC_X1} y2={SPEC_Y1} />
-          {[100, 1000, 10000].map((f) => {
-            const x = SPEC_X0 + (Math.log(f / 45) / Math.log(12000 / 45)) * (SPEC_X1 - SPEC_X0);
-            return (
-              <g key={f}>
-                <line className="iv-specgrid" x1={x} y1={SPEC_Y0} x2={x} y2={SPEC_Y1} />
-                <text className="iv-specmark" x={x + 3} y={SPEC_Y0 - 6}>
-                  {f >= 1000 ? (f / 1000) + 'k' : f}
-                </text>
-              </g>
-            );
-          })}
-          <path ref={specRef} className="iv-specbars" d="" />
+          {[50, 100, 200, 500, 1000, 2000, 5000, 10000].map((f) => (
+            <g key={f}>
+              <line className="iv-specgrid" x1={specX(f)} y1={SPEC_Y0} x2={specX(f)} y2={SPEC_Y1} />
+              <text className="iv-specmark" x={specX(f) + 2} y={SPEC_Y1 - 3}>
+                {f >= 1000 ? (f / 1000) + 'k' : f}
+              </text>
+            </g>
+          ))}
+          <path ref={specRef} className="iv-specfill" d="" />
           <path ref={specLineRef} className="iv-specpeak" d="" fill="none" />
+          {peakRefs.map((r, i) => (
+            <g key={i} ref={r} className="iv-peak" opacity="0">
+              <line x1="0" y1="0" x2="0" y2="7" />
+              <circle cx="0" cy="0" r="1.7" />
+              <text x="0" y="-4">0</text>
+            </g>
+          ))}
         </g>
 
         {/* lip motion trace */}

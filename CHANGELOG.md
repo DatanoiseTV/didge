@@ -40,10 +40,10 @@ All notable changes to Didge are documented here. The format follows
 - WebView UI with a live cutaway of the instrument driven by the engine's own
   bore profile and vocal tract, plus breath, embouchure, voice, instrument and
   space panels.
-- Output spectrum analyser behind the instrument: 32 log-spaced constant-Q
-  bands from 45 Hz to 12 kHz with octave marks. It runs only while the editor
-  is open, since it costs about a quarter of the engine's CPU and is only ever
-  looked at.
+- Output spectrum analyser along the bottom of the instrument panel: an FFT at
+  roughly 12 Hz per bin over 256 log-spaced display points from 40 Hz to
+  16 kHz, with peak hold and the six strongest partials tracked and labelled
+  with their measured frequency. It runs only while the editor is open.
 - Optional decay stage: with it switched on the breath falls away under a
   held note, turning the model into a struck exciter rather than a drone.
 - Velocity routing to breath, breath plus attack, embouchure or brightness --
