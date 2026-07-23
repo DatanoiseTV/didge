@@ -221,6 +221,24 @@
         flowSeg.push(Math.abs(Math.sin(u * mode * Math.PI / 2)) * env * 4e-4 + 2e-5 * env);
       }
 
+      /* Wave field: the same standing pattern, but as complex amplitudes, plus
+         a travelling component so the reconstruction can be checked doing what
+         it exists to do. A real bore is somewhere between the two -- perfectly
+         standing only if nothing radiates -- so the mock mixes them, with the
+         travelling share growing toward the bell where the radiation is.
+         Interleaved real/imaginary, matching what WebEditor sends. */
+      const waveP = [], waveD = [];
+      for (let i = 0; i < 16; i++) {
+        const u = i / 15;
+        const k = mode * Math.PI / 2 * u;
+        const trav = 0.55 * u * u;                    // radiating end lags
+        const pA = Math.cos(k) * env * 900;
+        const dA = Math.sin(k) * env * 1.4e-4;
+        waveP.push(pA * Math.cos(trav * Math.PI), pA * Math.sin(trav * Math.PI));
+        waveD.push(dA * Math.cos(trav * Math.PI - Math.PI / 2),
+                   dA * Math.sin(trav * Math.PI - Math.PI / 2));
+      }
+
       /* Output spectrum: 256 log-spaced display points from 40 Hz to 16 kHz,
          matching Spectrum::kBins and its range in dsp/Spectrum.h. The mock
          lays a harmonic series over a falling floor so the drawing, the peak
@@ -261,7 +279,7 @@
 
       return {
         out: [db, db - 0.6 - 0.4 * Math.sin(t * 1.7)],
-        press, flowSeg, lipWave, spec, specPk, peaks,
+        press, flowSeg, waveP, waveD, lipWave, spec, specPk, peaks,
         meanFlow: 2.2e-4 * env,
         turb: g('breathNoise') * env,
         pressure: env,

@@ -83,6 +83,32 @@ const N_PARTICLES = 130;
    the instrument it read as an opaque silhouette competing with the cutaway
    rather than as a readout. */
 const SPEC_X0 = 250, SPEC_X1 = 1244, SPEC_Y0 = 232, SPEC_Y1 = 290;
+const ZERO32 = new Array(32).fill(0);
+
+/* The wave field arrives as one complex amplitude per segment boundary, real
+   and imaginary interleaved. Sampling it between boundaries has to interpolate
+   the real and imaginary parts separately: interpolating magnitude alone would
+   throw away the phase, which is exactly the part that makes a wave travel.
+   Returns the value of that field at time `phase`. */
+function fieldAt(arr, u, cosP, sinP) {
+  const n = arr.length >> 1;
+  if (n < 2) return 0;
+  const t = Math.max(0, Math.min(1, u)) * (n - 1);
+  const i = Math.min(n - 2, Math.floor(t));
+  const f = t - i;
+  const re = arr[2 * i] * (1 - f) + arr[2 * i + 2] * f;
+  const im = arr[2 * i + 1] * (1 - f) + arr[2 * i + 3] * f;
+  return re * cosP - im * sinP;
+}
+
+function fieldPeak(arr) {
+  let m = 1e-12;
+  for (let i = 0; i < arr.length; i += 2) {
+    const a = Math.hypot(arr[i], arr[i + 1]);
+    if (a > m) m = a;
+  }
+  return m;
+}
 
 function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMix = 0.5, wallDamp = 0.3 }) {
   const lv = JuceBridge.useEventRef('levels', {
@@ -90,6 +116,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
     f0: 73.42, toot: 199, tootActive: false, playing: false,
     bore: DEFAULT_BORE, tract: DEFAULT_TRACT,
     press: ZERO16, flowSeg: ZERO16, lipWave: ZERO96, meanFlow: 0, turb: 0,
+    waveP: ZERO32, waveD: ZERO32,
     spec: SPEC_FLOOR, specPk: SPEC_FLOOR, peaks: [],
   });
 
@@ -231,56 +258,68 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
       if (phase > 1e6) phase -= 1e6;
       const cosP = Math.cos(phase), sinP = Math.sin(phase);
 
-      /* ---- standing wave, measured ----
-         press[] is the pressure envelope at each segment boundary and
-         flowSeg[] the volume-flow envelope. They are complementary: pressure
-         peaks where flow vanishes. Drawing the measured envelope means the
-         node positions are the model's, and the overblown register shows its
-         extra nodes without any special case here. */
-      const press = (L.press && L.press.length === 16) ? L.press : ZERO16;
-      const flowSeg = (L.flowSeg && L.flowSeg.length === 16) ? L.flowSeg : ZERO16;
+      /* ---- travelling wave, reconstructed ----
+         waveP is the acoustic pressure at each segment boundary as a complex
+         amplitude at the sounding frequency: magnitude and phase, measured by
+         a quadrature detector running in the engine on the real waveguide.
 
-      let pMax = 1e-9, uMax = 1e-9;
-      for (let i = 0; i < 16; i++) {
-        if (press[i] > pMax) pMax = press[i];
-        if (flowSeg[i] > uMax) uMax = flowSeg[i];
-      }
+         Evaluating it at a common time gives the pressure profile along the
+         bore at that instant, and because each position carries its own phase,
+         the profile MOVES. Where the bore reflects strongly the phases line up
+         and it stands still with fixed nodes; where the bell radiates well the
+         phase advances smoothly and the crest runs toward the mouth of it.
+         That difference is the physics, and it appears here for free -- there
+         is no travelling-versus-standing switch in this code, only the
+         measured field.
+
+         The previous version drew the amplitude envelope and pulsed all of it
+         in step, which cannot show a wave going anywhere. */
+      const waveP = (L.waveP && L.waveP.length === 32) ? L.waveP : ZERO32;
+      const waveD = (L.waveD && L.waveD.length === 32) ? L.waveD : ZERO32;
+      const pMax = fieldPeak(waveP);
+      const dMax = fieldPeak(waveD);
+
+      const press = (L.press && L.press.length === 16) ? L.press : ZERO16;
+      let pEnvMax = 1e-9;
+      for (let i = 0; i < 16; i++) if (press[i] > pEnvMax) pEnvMax = press[i];
 
       const damp = 1 - 0.45 * pr.wallDamp;
-      const top = [], bot = [];
+
+      /* Two things are drawn, because one alone would lie.
+
+         The filled column is the amplitude, |P(x)| -- how hard the air is
+         working at each place, which is what fixes the nodes. It is steady.
+
+         The line inside it is the pressure at this instant, signed, crossing
+         the axis where the air is momentarily at rest. That is the part that
+         moves. Drawing only the instant would be truthful and unreadable: in
+         a standing wave the pressure passes through zero everywhere at the
+         same moment, so the whole picture would blink out twice a cycle
+         against the frame rate. Drawing only the amplitude is what this used
+         to do, and an amplitude cannot go anywhere. */
+      const top = [], bot = [], line = [];
       for (let i = 0; i <= NW; i++) {
         const u = i / NW;
         const x = BORE_X0 + u * BORE_SPAN;
-        const env = at(press, u) / pMax;                 // 0..1 measured shape
-        /* Pressure is a scalar field along the axis — it does not scale with
-           how wide the tube happens to be there. Multiplying by the bore
-           radius let the flare cancel the envelope's taper and drew the column
-           widening toward the bell, the exact opposite of the truth: a pipe
-           closed at the lips and open at the bell has its pressure antinode at
-           the LIPS and a node at the open end.
-           So the height is the measured envelope, merely clipped to fit inside
-           the wall. It therefore fills the narrow mouth, where pressure is
-           greatest, and vanishes at the open end. The oscillation modulates
-           about a floor rather than passing through zero, so the shape reads
-           at every instant instead of strobing against the frame rate. */
-        // Scaled by the breath with no floor under it. The envelope arriving
-        // from the engine is normalised to its own maximum, so it keeps its
-        // full shape however quiet the instrument is; only `level` knows
-        // whether anything is actually sounding. A floor here drew a standing
-        // wave in a silent tube.
-        const swing = (0.42 + 0.58 * Math.abs(cosP)) * damp * level;
-        const amp = Math.min (hAt(u) - 2, 110 * env * swing) + level;
+        const n = (waveP.length >> 1) - 1;
+        const t = Math.max(0, Math.min(1, u)) * n;
+        const j = Math.min(n - 1, Math.floor(t)), f = t - j;
+        const mag = (Math.hypot(waveP[2 * j], waveP[2 * j + 1]) * (1 - f)
+                   + Math.hypot(waveP[2 * j + 2], waveP[2 * j + 3]) * f) / pMax;
+        const amp = Math.min(hAt(u) - 2, 96 * mag * damp * level) + level;
         top.push([x, CY - amp]);
         bot.push([x, CY + amp]);
+        const pNow = fieldAt(waveP, u, cosP, sinP) / pMax;
+        line.push([x, CY - Math.max(-1, Math.min(1, pNow)) * amp]);
       }
       const wd = smoothPath(top) + smoothPath(bot.slice().reverse(), false) + ' Z';
       if (waveRef.current) {
         waveRef.current.setAttribute('d', wd);
-        waveRef.current.setAttribute('opacity', (0.85 * level).toFixed(3));
+        waveRef.current.setAttribute('opacity', (0.55 * level).toFixed(3));
       }
       if (waveLineRef.current) {
-        waveLineRef.current.setAttribute('d', smoothPath(top));
-        waveLineRef.current.setAttribute('opacity', (0.9 * level).toFixed(3));
+        waveLineRef.current.setAttribute('d', smoothPath(line));
+        waveLineRef.current.setAttribute('opacity', (0.95 * level).toFixed(3));
       }
 
       /* Pressure nodes: where the measured envelope dips to a local minimum.
@@ -289,7 +328,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
       let nd = '';
       if (level > 0.05) {
         for (let i = 1; i < 15; i++) {
-          const a = press[i - 1] / pMax, b = press[i] / pMax, c = press[i + 1] / pMax;
+          const a = press[i - 1] / pEnvMax, b = press[i] / pEnvMax, c = press[i + 1] / pEnvMax;
           if (b < a && b <= c && b < 0.35) {
             const x = xs[i], h = hs[i];
             nd += `M ${x.toFixed(1)} ${(CY - h).toFixed(1)} L ${x.toFixed(1)} ${(CY + h).toFixed(1)} `;
@@ -299,32 +338,53 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
       if (nodeRef.current) nodeRef.current.setAttribute('d', nd);
 
       /* ---- air parcels ----
-         Air in a pipe mostly sloshes: the oscillating displacement is far
-         larger than the net drift that actually leaves the bell. Parcels are
-         therefore moved by the local flow envelope (large at a flow antinode,
-         nil at a node) in quadrature with the pressure, plus a slow drift
-         toward the bell. Watching them makes the node structure legible in a
-         way the envelope alone does not.
+         Air does not travel with a sound wave. Each parcel oscillates about a
+         fixed place, and it is the disturbance that moves through them -- the
+         single most misrepresented thing in any picture of sound. So each
+         parcel here sits at a rest position and is displaced by the measured
+         particle displacement at that position, waveD, which the engine
+         derives from the same wave components as the pressure.
 
-         Every term is the measured flow, with no constant under it: no breath
-         means no flow, so the parcels neither drift nor swing nor show. A
-         baseline drift used to sit in front of the measured one, which left
-         air visibly moving through a tube nobody was blowing. */
+         Two things then follow on their own, without being drawn in. Parcels
+         swing widest where the flow is greatest and stand still at the flow
+         nodes. And because neighbouring parcels are displaced by slightly
+         different amounts, they crowd together and spread apart: those are
+         compressions and rarefactions, they sit a quarter cycle from the
+         swing, and they move along the tube at the speed of the wave.
+
+         On top of that, and much smaller, is the steady drift of the breath
+         actually leaving the bell. Real, and worth showing, but it is the
+         small term -- the reverse of how it is usually drawn. */
       const drift = Math.max(0, Number(L.meanFlow) || 0) * level;
+      /* Displacement scaled to the drawing, and to the visible span rather
+         than to metres: the real excursion in a didgeridoo is a few
+         millimetres in a tube more than a metre long, which at this size would
+         be invisible. The gearing is honest about being a gearing -- what is
+         faithful is the shape, the phase and where the nodes fall. */
+      const dScale = 0.075 * level;
       let ad = '';
       for (let i = 0; i < N_PARTICLES; i++) {
         const p = air[i];
         p.u += dt * 9000.0 * drift * (0.6 + 0.8 * p.jitter);
         if (p.u > 1) p.u -= 1;
 
-        const uLocal = at(flowSeg, p.u) / uMax;
-        // Quadrature with pressure: flow leads where pressure is nil.
-        const swing = 0.055 * uLocal * level * sinP;
-        const ux = Math.max(0, Math.min(1, p.u + swing));
+        const disp = fieldAt(waveD, p.u, cosP, sinP) / dMax;
+        const ux = Math.max(0, Math.min(1, p.u + dScale * disp));
         const x = BORE_X0 + ux * BORE_SPAN;
         const h = hAt(ux) - 3;
         const y = CY + p.lat * h * 0.86;
-        const r = (level * (0.5 + 2.1 * uLocal)).toFixed(2);
+        /* A parcel of air is not compressible on its own -- it is the SPACING
+           between parcels that shows compression, and the displacement above
+           already produces it. So the marker keeps its size, growing only
+           where the swing is large enough to be worth watching. Sizing it by
+           the instantaneous pressure instead, as an earlier version did, made
+           every parcel shrink to nothing twice a cycle together. */
+        const nn = (waveD.length >> 1) - 1;
+        const tt = Math.max(0, Math.min(1, p.u)) * nn;
+        const jj = Math.min(nn - 1, Math.floor(tt)), ff = tt - jj;
+        const swingMag = (Math.hypot(waveD[2 * jj], waveD[2 * jj + 1]) * (1 - ff)
+                        + Math.hypot(waveD[2 * jj + 2], waveD[2 * jj + 3]) * ff) / dMax;
+        const r = (level * (0.85 + 1.5 * swingMag)).toFixed(2);
         ad += `M ${(x - Number(r)).toFixed(1)} ${y.toFixed(1)} a ${r} ${r} 0 1 0 ${(2 * Number(r)).toFixed(2)} 0 a ${r} ${r} 0 1 0 ${(-2 * Number(r)).toFixed(2)} 0 `;
       }
       if (airRef.current) {

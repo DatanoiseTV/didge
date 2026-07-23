@@ -247,6 +247,16 @@ void DidgeEngine::reset()
     lipTraceIdx = lipDecimCount = 0;
     lipTracePeak = 0.0f;
     for (auto& v : lipTrace) v.store (0.0f, std::memory_order_relaxed);
+
+    demC = 1.0f; demS = 0.0f;
+    for (int i = 0; i < Bore::kSegments; ++i)
+    {
+        wPRe[i] = wPIm[i] = wVRe[i] = wVIm[i] = 0.0f;
+        vPRe[i].store (0.0f, std::memory_order_relaxed);
+        vPIm[i].store (0.0f, std::memory_order_relaxed);
+        vDRe[i].store (0.0f, std::memory_order_relaxed);
+        vDIm[i].store (0.0f, std::memory_order_relaxed);
+    }
 }
 
 LipLoad DidgeEngine::buildLipLoad (const EngineParams& p) const
@@ -562,6 +572,22 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
 
     const bool analyse = spectrumOn.load (std::memory_order_relaxed);
 
+    // Wave-field demodulation, for the display only. A single-bin quadrature
+    // detector at the sounding frequency, run on the forward and backward
+    // waves at every segment boundary. What comes out is a complex amplitude
+    // per position: magnitude AND phase. The phase is the whole point -- it is
+    // what distinguishes a wave travelling toward the bell from a standing
+    // pattern, and an envelope cannot carry it.
+    //
+    // The reference oscillator is an incremental rotation rather than a call
+    // to cos and sin per sample, renormalised once a block against drift.
+    const float demW = 6.2831853f * std::max (20.0f, vF0.load (std::memory_order_relaxed)) / fs;
+    const float demCw = std::cos (demW), demSw = std::sin (demW);
+    // ~40 ms, long enough to average a steady tone and short enough to follow
+    // a note change without smearing across it.
+    const float demA = 1.0f - std::exp (-1.0f / (0.040f * fs));
+    constexpr float kRhoC = kAirDensity * kSpeedOfSound;
+
     const float zBore = bore.mouthImpedance();
     const float dcR = 1.0f - 6.2831853f * 18.0f / fs;
     const float tiltGain = 0.5f * (fs / 48000.0f);
@@ -716,6 +742,23 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         // The flow the lips pass launches a forward wave into the bore and an
         // equal and opposite reaction back up the tract.
         const float u = lip.flow;
+        if (analyse)
+        {
+            const float nc = demC * demCw - demS * demSw;
+            demS = demC * demSw + demS * demCw;
+            demC = nc;
+            for (int i = 0; i < Bore::kSegments; ++i)
+            {
+                const float fw = bore.forwardWave (i), bw = bore.backwardWave (i);
+                const float pr = fw + bw;             // acoustic pressure
+                const float vp = (fw - bw) / kRhoC;   // particle velocity
+                wPRe[i] += demA * (pr *  demC - wPRe[i]);
+                wPIm[i] += demA * (pr * -demS - wPIm[i]);
+                wVRe[i] += demA * (vp *  demC - wVRe[i]);
+                wVIm[i] += demA * (vp * -demS - wVIm[i]);
+            }
+        }
+
         const float radiated = bore.finishStep (pMinus + zBore * u);
 
         tract.finishStep (0.0f, fTract - zMouth * lip.flow);
@@ -779,6 +822,33 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         vFlowSeg[i].store (bore.segmentFlow (i), std::memory_order_relaxed);
     }
     vMeanFlow.store (bore.meanFlow(), std::memory_order_relaxed);
+
+    if (analyse)
+    {
+        // Keep the reference oscillator on the unit circle; a first-order
+        // rotation drifts in amplitude over millions of samples.
+        const float r = demC * demC + demS * demS;
+        if (r > 1.0e-6f)
+        {
+            const float g = 1.0f / std::sqrt (r);
+            demC *= g; demS *= g;
+        }
+        else { demC = 1.0f; demS = 0.0f; }
+
+        // Publish pressure directly, and convert particle velocity to the
+        // air's actual displacement: for a phasor, dividing by j*omega is a
+        // quarter turn back. Displacement is what a parcel of air really does,
+        // so it is what the parcels on screen should follow.
+        const float wRef = 6.2831853f
+                         * std::max (20.0f, vF0.load (std::memory_order_relaxed));
+        for (int i = 0; i < Bore::kSegments; ++i)
+        {
+            vPRe[i].store (wPRe[i], std::memory_order_relaxed);
+            vPIm[i].store (wPIm[i], std::memory_order_relaxed);
+            vDRe[i].store ( wVIm[i] / wRef, std::memory_order_relaxed);
+            vDIm[i].store (-wVRe[i] / wRef, std::memory_order_relaxed);
+        }
+    }
     if (analyse)
     {
         for (int i = 0; i < Spectrum::kBins; ++i)

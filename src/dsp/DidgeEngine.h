@@ -208,6 +208,12 @@ public:
     bool  vizTootActive() const { return vTootActive.load (std::memory_order_relaxed); }
     float vizTractArea (int i) const { return vTract[i].load (std::memory_order_relaxed); }
     float vizBoreRadius (int i) const { return vBore[i].load (std::memory_order_relaxed); }
+    // Complex amplitude of the acoustic pressure, and of the air's own
+    // displacement, at segment boundary i. Both at the sounding frequency.
+    float vizPressureRe (int i) const { return vPRe[i].load (std::memory_order_relaxed); }
+    float vizPressureIm (int i) const { return vPIm[i].load (std::memory_order_relaxed); }
+    float vizDisplaceRe (int i) const { return vDRe[i].load (std::memory_order_relaxed); }
+    float vizDisplaceIm (int i) const { return vDIm[i].load (std::memory_order_relaxed); }
 
     // Standing wave and airflow along the bore, straight from the waveguide.
     float vizBorePressure (int i) const { return vPress[i].load (std::memory_order_relaxed); }
@@ -280,6 +286,11 @@ private:
     // Retune bookkeeping
     float tunedTargetHz = 0.0f;
     float tunedTrim = 0.0f;
+    // Quadrature demodulator state for the wave field (display only).
+    float wPRe[Bore::kSegments] {}, wPIm[Bore::kSegments] {};
+    float wVRe[Bore::kSegments] {}, wVIm[Bore::kSegments] {};
+    float demC = 1.0f, demS = 0.0f;
+
     BoreShape tunedShape;
     int   tunedExciter = -1;
     bool  everTuned = false;
@@ -308,6 +319,11 @@ private:
     std::atomic<float> vPress[Bore::kSegments];
     std::atomic<float> vFlowSeg[Bore::kSegments];
     std::atomic<float> vMeanFlow { 0.0f }, vTurb { 0.0f };
+    // Wave field at the sounding frequency: pressure and particle displacement
+    // as complex amplitudes per segment, so the display can reconstruct the
+    // travelling wave at its own frame rate instead of pulsing an envelope.
+    std::atomic<float> vPRe[Bore::kSegments], vPIm[Bore::kSegments];
+    std::atomic<float> vDRe[Bore::kSegments], vDIm[Bore::kSegments];
     std::atomic<float> vSpec[Spectrum::kBins];
     std::atomic<float> vSpecPk[Spectrum::kBins];
     std::atomic<float> vPeakHz[Spectrum::kPeaks];

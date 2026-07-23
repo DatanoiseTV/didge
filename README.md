@@ -151,6 +151,27 @@ sounding note is heard as portamento. A note therefore holds one pitch for its
 whole length; on the default bore the first note of a session lands within a
 few cents and later ones inside two.
 
+The cutaway shows the wave itself, not a picture of one. The engine runs a
+quadrature detector on the real waveguide and reports the acoustic pressure and
+the air's own displacement at every segment boundary as complex amplitudes --
+magnitude and phase. Phase is the part that matters: it is what distinguishes a
+wave travelling toward the bell from a pattern standing still, and an amplitude
+envelope cannot carry it. The interface reconstructs the field at its own frame
+rate, so the filled column is the amplitude, which fixes the nodes, and the line
+inside it is the pressure at that instant, which moves. Where the bore reflects
+strongly the phases line up and the line stands; where the bell radiates the
+phase advances and the crest runs toward it. Neither behaviour is drawn in --
+there is no travelling-versus-standing switch, only the measured field.
+
+The parcels of air are the same field, and they behave the way air does: each
+one oscillates about a fixed place and does not travel with the wave. What
+travels through them is the disturbance. Because neighbouring parcels are
+displaced by slightly different amounts they crowd and spread, and those
+compressions and rarefactions sit a quarter cycle from the swing and move along
+the tube on their own -- nothing in the drawing puts them there. On top of that,
+and much smaller, is the steady drift of the breath actually leaving the bell:
+real, but the small term, which is the reverse of how it is usually drawn.
+
 The strip along the bottom of the instrument panel is a live analyser: an FFT
 sized for roughly 12 Hz per bin, drawn over 256 log-spaced display points from
 40 Hz to 16 kHz, with a slow-falling peak hold and the six strongest partials

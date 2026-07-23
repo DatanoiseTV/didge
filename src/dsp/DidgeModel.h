@@ -660,6 +660,16 @@ public:
     float segmentFlow (int i)     const { return uAmp[i]; }
     float meanFlow()              const { return uMean; }
 
+    // Instantaneous travelling-wave components at each segment boundary, valid
+    // between beginStep() and the next beginStep(). Envelopes cannot show a
+    // wave moving: they are amplitudes, and a display built on them can only
+    // pulse everything in step. These are the actual waveguide variables, so
+    // p = f + b and the particle velocity is (f - b)/(rho*c). Demodulating them
+    // recovers the phase at each position, which is the part that makes a wave
+    // travel rather than stand.
+    float forwardWave (int i)  const { return fOut[i]; }
+    float backwardWave (int i) const { return bOut[i]; }
+
     // Input impedance in SI units at the current tuning.
     std::complex<float> impedanceAt (float freq) const
     {

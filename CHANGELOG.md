@@ -47,6 +47,11 @@ All notable changes to Didge are documented here. The format follows
   roughly 12 Hz per bin over 256 log-spaced display points from 40 Hz to
   16 kHz, with peak hold and the six strongest partials tracked and labelled
   with their measured frequency. It runs only while the editor is open.
+- Wave field telemetry: a quadrature detector on the running waveguide reports
+  the pressure and the air's displacement at each segment boundary as complex
+  amplitudes, so the cutaway reconstructs the real travelling wave instead of
+  pulsing an amplitude envelope in step. The air parcels oscillate about fixed
+  positions and let their spacing show compression, which is what air does.
 - Optional decay stage: with it switched on the breath falls away under a
   held note, turning the model into a struck exciter rather than a drone.
 - Velocity routing to breath, breath plus attack, embouchure or brightness --

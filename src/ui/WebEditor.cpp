@@ -481,11 +481,20 @@ void WebEditor::emitLevels()
     // Standing wave and airflow along the bore, plus the lip motion itself.
     // The drawing is built from these rather than from an assumed mode shape,
     // so the nodes sit where the waveguide actually puts them.
+    // Wave field: complex amplitude of pressure and of the air's displacement
+    // at each segment boundary. Sent as real/imaginary pairs so the page can
+    // reconstruct the wave at any instant it likes -- the phase difference
+    // between positions is what makes it travel.
+    juce::Array<juce::var> waveP, waveD;
     juce::Array<juce::var> press, flowSeg;
     for (int i = 0; i < didge::Bore::kSegments; ++i)
     {
         press.add (juce::var (engine.vizBorePressure (i)));
         flowSeg.add (juce::var (engine.vizBoreFlow (i)));
+        waveP.add (juce::var (engine.vizPressureRe (i)));
+        waveP.add (juce::var (engine.vizPressureIm (i)));
+        waveD.add (juce::var (engine.vizDisplaceRe (i)));
+        waveD.add (juce::var (engine.vizDisplaceIm (i)));
     }
 
     // Rounded to whole decibels: the display cannot show more than that, and
@@ -521,6 +530,8 @@ void WebEditor::emitLevels()
     root->setProperty ("playing",    engine.anyNoteHeld());
     root->setProperty ("bore",       juce::var (bore));
     root->setProperty ("tract",      juce::var (tract));
+    root->setProperty ("waveP",      juce::var (waveP));
+    root->setProperty ("waveD",      juce::var (waveD));
     root->setProperty ("press",      juce::var (press));
     root->setProperty ("flowSeg",    juce::var (flowSeg));
     root->setProperty ("lipWave",    juce::var (lipWave));

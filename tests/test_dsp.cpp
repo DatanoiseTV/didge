@@ -774,6 +774,77 @@ static void testBoreDiameter()
 }
 
 // ---------------------------------------------------------------------------
+// The wave field the display is built on. A quadrature detector in the engine
+// reports the pressure and the air's displacement at every segment boundary as
+// complex amplitudes, so the interface can reconstruct the wave at its own
+// frame rate. That is only worth anything if the field is real, so this checks
+// its physics rather than its existence: a tube closed at the lips and open at
+// the bell has its pressure antinode at the mouth and its node at the open end,
+// with the air's displacement exactly the other way round, and the phase must
+// advance from mouth to bell because energy is leaving through the bell.
+// ---------------------------------------------------------------------------
+static void testWaveField()
+{
+    EngineParams p;
+    p.pressure = 0.8f;
+    p.humanize = 0.0f;
+    DidgeEngine e;
+    e.prepare (kFs, 256);
+    e.setSpectrumEnabled (true);          // the field is display telemetry
+    hold (e, p, 38, 3.0f);
+
+    const int N = Bore::kSegments;
+    std::vector<float> pMag (N), dMag (N), pPhase (N);
+    for (int i = 0; i < N; ++i)
+    {
+        const float re = e.vizPressureRe (i), im = e.vizPressureIm (i);
+        pMag[i] = std::hypot (re, im);
+        pPhase[i] = std::atan2 (im, re);
+        dMag[i] = std::hypot (e.vizDisplaceRe (i), e.vizDisplaceIm (i));
+    }
+
+    float pTop = 0.0f, dTop = 0.0f;
+    for (int i = 0; i < N; ++i) { pTop = std::max (pTop, pMag[i]); dTop = std::max (dTop, dMag[i]); }
+    CHECK (pTop > 0.0f && dTop > 0.0f,
+           "the wave field is empty while a note is sounding");
+
+    // Pressure antinode at the lips, node at the open end.
+    CHECK (pMag[0] > 0.6f * pTop,
+           "pressure should be near its maximum at the mouth: %.2f of peak",
+           pMag[0] / pTop);
+    CHECK (pMag[N - 1] < 0.5f * pMag[0],
+           "pressure should fall toward the open bell: %.2f at the mouth, %.2f at the bell",
+           pMag[0] / pTop, pMag[N - 1] / pTop);
+
+    // Displacement is the complement: the air barely moves where it is most
+    // compressed, and moves most where it is free to.
+    CHECK (dMag[N - 1] > dMag[0],
+           "the air should swing more at the open end than at the lips: %.3g against %.3g",
+           dMag[N - 1], dMag[0]);
+
+    // Phase must actually vary along the bore. A field with one phase
+    // everywhere is a pure standing wave, which only happens if nothing
+    // radiates; a real bell means a travelling component, and it is that
+    // phase progression the display turns into a moving wave.
+    float spread = 0.0f;
+    for (int i = 0; i < N; ++i)
+    {
+        float d = std::abs (pPhase[i] - pPhase[0]);
+        while (d > 3.14159265f) d = 6.2831853f - d;
+        spread = std::max (spread, d);
+    }
+    CHECK (spread > 0.15f,
+           "the wave field carries no phase progression (%.3f rad across the bore), "
+           "so nothing in it can travel", spread);
+
+    for (int i = 0; i < N; ++i)
+    {
+        CHECK (std::isfinite (pMag[i]) && std::isfinite (dMag[i]),
+               "wave field went non-finite at segment %d", i);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Material must change the timbre: a hard, smooth wall loses less at the top
 // than a soft, rough one, so metal has to come out brighter than wood.
 // ---------------------------------------------------------------------------
@@ -912,6 +983,7 @@ int main()
     testExciterTypes();
     testReedBeatsShut();
     testBoreDiameter();
+    testWaveField();
     testMaterials();
     testStability();
     testSampleRates();
