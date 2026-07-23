@@ -277,7 +277,11 @@ WebEditor::WebEditor (::DidgeAudioProcessor& proc)
     webView->goToURL (juce::WebBrowserComponent::getResourceProviderRoot() + "index.html");
     didgeProcessor.getEngine().setSpectrumEnabled (true);
     startHealthWatchdog();
-    startTimerHz (30);
+    // 60 Hz telemetry. The browser side already animates from
+    // requestAnimationFrame at the display's own rate, so this is what
+    // actually decides how current the drawing is: at 30 Hz the meters and
+    // the spectrum visibly step.
+    startTimerHz (60);
 }
 
 WebEditor::~WebEditor()
@@ -354,8 +358,8 @@ private:
 void WebEditor::startHealthWatchdog()
 {
     webViewHealthy = false;
-    healthTicksRemaining = 120;   // 4 s at 30 Hz
-    healthPollEveryTicks = 4;
+    healthTicksRemaining = 240;   // 4 s at 60 Hz
+    healthPollEveryTicks = 8;
     if (fallback != nullptr && fallback->isVisible())
         fallback->setVisible (false);
 }

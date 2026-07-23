@@ -27,7 +27,7 @@ namespace didge
 // matching parameter attachment (every Didge parameter is continuous, so no
 // toggle or combo relays are needed). Live metering, the model's own state —
 // breath, lip opening, bore profile, vocal tract — and preset state are
-// pushed to the JS side via emitEventIfBrowserIsVisible on a 30 Hz UI timer.
+// pushed to the JS side via emitEventIfBrowserIsVisible on a 60 Hz UI timer.
 class WebEditor : public juce::AudioProcessorEditor,
                   private juce::Timer
 {

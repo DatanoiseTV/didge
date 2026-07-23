@@ -13,7 +13,7 @@
    model says it moves.
 
    Everything animates from a single rAF loop that mutates SVG
-   attributes in place. The 30 Hz telemetry never touches React
+   attributes in place. The 60 Hz telemetry never touches React
    state — a re-render per event would repaint the whole panel
    tree and fight the animation.
    ============================================================ */
@@ -76,8 +76,11 @@ const SPEC_FLOOR = new Array(SPEC_N).fill(-90);
 
 const N_PARTICLES = 130;
 
-/* The analyser spans the full panel behind the instrument. */
-const SPEC_X0 = 40, SPEC_X1 = 1240, SPEC_Y0 = 22, SPEC_Y1 = 286;
+/* The analyser is a contained strip along the bottom right, sharing that row
+   with the lip-opening trace on the left. Drawn full-panel behind the
+   instrument it read as an opaque silhouette competing with the cutaway
+   rather than as a readout. */
+const SPEC_X0 = 470, SPEC_X1 = 1240, SPEC_Y0 = 236, SPEC_Y1 = 288;
 
 function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMix = 0.5, wallDamp = 0.3 }) {
   const lv = JuceBridge.useEventRef('levels', {
@@ -126,6 +129,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
     let raf = 0, last = performance.now();
     let phase = 0, level = 0, lipSm = 0, glowSm = 0, turbSm = 0;
     const specSm = new Array(SPEC_N).fill(0);
+    const specPk = new Array(SPEC_N).fill(0);
 
     const xs = [];
     for (let i = 0; i < 16; i++) xs.push(BORE_X0 + (i / 15) * BORE_SPAN);
@@ -396,18 +400,28 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         const target = Math.max(0, Math.min(1, (sp[i] + 72) / 66));
         specSm[i] += (target - specSm[i]) * (1 - Math.exp(-dt / (target > specSm[i] ? 0.02 : 0.14)));
       }
-      // Curved through the band centres rather than joined by straight lines:
-      // thirty-two points spread over the full width otherwise read as a
-      // zig-zag rather than a spectral envelope.
-      const spts = [];
+      // Bars, one per band. A filled curve reads as a solid shape at this
+      // size; discrete bars read immediately as a level readout.
+      const bw = (SPEC_X1 - SPEC_X0) / SPEC_N;
+      const barW = bw * 0.58;
+      const span = SPEC_Y1 - SPEC_Y0;
+      let sd = '';
       for (let i = 0; i < SPEC_N; i++) {
-        spts.push([SPEC_X0 + (i / (SPEC_N - 1)) * (SPEC_X1 - SPEC_X0),
-                   SPEC_Y1 - specSm[i] * (SPEC_Y1 - SPEC_Y0)]);
+        const h = Math.max(0.8, specSm[i] * span);
+        const x = SPEC_X0 + i * bw + (bw - barW) * 0.5;
+        sd += `M ${x.toFixed(1)} ${(SPEC_Y1 - h).toFixed(1)} h ${barW.toFixed(1)} v ${h.toFixed(1)} h ${(-barW).toFixed(1)} Z `;
       }
-      const sl = smoothPath(spts);
-      const sd = sl + ` L ${SPEC_X1} ${SPEC_Y1} L ${SPEC_X0} ${SPEC_Y1} Z`;
       if (specRef.current) specRef.current.setAttribute('d', sd);
-      if (specLineRef.current) specLineRef.current.setAttribute('d', sl);
+
+      // Slow-falling peak caps, so transients stay visible for a moment.
+      let sc = '';
+      for (let i = 0; i < SPEC_N; i++) {
+        specPk[i] = Math.max(specSm[i], specPk[i] - dt * 0.55);
+        const y = SPEC_Y1 - Math.max(1.2, specPk[i] * span);
+        const x = SPEC_X0 + i * bw + (bw - barW) * 0.5;
+        sc += `M ${x.toFixed(1)} ${y.toFixed(1)} h ${barW.toFixed(1)} `;
+      }
+      if (specLineRef.current) specLineRef.current.setAttribute('d', sc);
 
       /* ---- readouts ---- */
       const toot = !!L.tootActive;
@@ -463,9 +477,9 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
             <stop offset="100%" stopColor="#ff8a2a" stopOpacity="0" />
           </radialGradient>
           <linearGradient id="specg" x1="0" y1="1" x2="0" y2="0">
-            <stop offset="0%"   stopColor="#ff9d3c" stopOpacity="0.02" />
-            <stop offset="70%"  stopColor="#ffb765" stopOpacity="0.14" />
-            <stop offset="100%" stopColor="#ffd9a6" stopOpacity="0.26" />
+            <stop offset="0%"   stopColor="#c9702a" stopOpacity="0.55" />
+            <stop offset="60%"  stopColor="#ffa447" stopOpacity="0.8" />
+            <stop offset="100%" stopColor="#ffd9a6" stopOpacity="0.95" />
           </linearGradient>
           <linearGradient id="tractg" x1="0" y1="0" x2="1" y2="0">
             <stop offset="0%"   stopColor="#7a4a86" />
@@ -475,26 +489,6 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
             <feGaussianBlur stdDeviation="7" />
           </filter>
         </defs>
-
-        {/* output spectrum, behind the instrument */}
-        <g className="iv-spec">
-          {/* Octave marks, so the backdrop reads as an analyser rather than a
-              decorative curve. Positions follow the same log mapping the
-              bands use. */}
-          {[100, 300, 1000, 3000, 10000].map((f) => {
-            const x = SPEC_X0 + (Math.log(f / 45) / Math.log(12000 / 45)) * (SPEC_X1 - SPEC_X0);
-            return (
-              <g key={f}>
-                <line className="iv-specgrid" x1={x} y1={SPEC_Y0} x2={x} y2={SPEC_Y1} />
-                <text className="iv-specmark" x={x + 3} y={SPEC_Y1 - 3}>
-                  {f >= 1000 ? (f / 1000) + 'k' : f}
-                </text>
-              </g>
-            );
-          })}
-          <path ref={specRef} d="" />
-          <path ref={specLineRef} d="" fill="none" />
-        </g>
 
         {/* centre axis */}
         <line className="iv-axis" x1={TRACT_X0} y1={CY} x2={BORE_X1 + 22} y2={CY} />
@@ -538,6 +532,25 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
           <rect ref={lipUpRef} x={LIP_X} y={CY - 40} width={LIP_W} height="28" rx="9" />
           <rect ref={lipDnRef} x={LIP_X} y={CY + 12} width={LIP_W} height="28" rx="9" />
           <text className="iv-cap" x={LIP_X - 2} y={CY + 62}>LIPS</text>
+        </g>
+
+        {/* output spectrum */}
+        <g className="iv-spec">
+          <text className="iv-cap dim" x={SPEC_X0} y={SPEC_Y0 - 6}>OUTPUT SPECTRUM</text>
+          <line className="iv-specbase" x1={SPEC_X0} y1={SPEC_Y1} x2={SPEC_X1} y2={SPEC_Y1} />
+          {[100, 1000, 10000].map((f) => {
+            const x = SPEC_X0 + (Math.log(f / 45) / Math.log(12000 / 45)) * (SPEC_X1 - SPEC_X0);
+            return (
+              <g key={f}>
+                <line className="iv-specgrid" x1={x} y1={SPEC_Y0} x2={x} y2={SPEC_Y1} />
+                <text className="iv-specmark" x={x + 3} y={SPEC_Y0 - 6}>
+                  {f >= 1000 ? (f / 1000) + 'k' : f}
+                </text>
+              </g>
+            );
+          })}
+          <path ref={specRef} className="iv-specbars" d="" />
+          <path ref={specLineRef} className="iv-specpeak" d="" fill="none" />
         </g>
 
         {/* lip motion trace */}

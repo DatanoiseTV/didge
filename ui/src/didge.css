@@ -192,13 +192,16 @@ html, body {
 .iv-air { fill: rgba(255, 236, 208, 0.85); }
 
 /* Output spectrum, sitting behind the instrument as a backdrop. */
-.iv-specgrid { stroke: rgba(255, 220, 180, 0.055); stroke-width: 1; }
+.iv-specgrid { stroke: rgba(255, 220, 180, 0.07); stroke-width: 1; }
+.iv-specbase { stroke: rgba(255, 220, 180, 0.16); stroke-width: 1; }
 .iv-specmark {
-  fill: rgba(140, 115, 90, 0.55); font-size: 7.5px;
-  letter-spacing: 0.1em; font-family: var(--mono);
+  fill: rgba(150, 122, 95, 0.7); font-size: 7px;
+  letter-spacing: 0.08em; font-family: var(--mono);
 }
-.iv-spec path:first-child { fill: url(#specg); }
-.iv-spec path:last-child { stroke: rgba(255, 195, 130, 0.42); stroke-width: 1.2; }
+/* Addressed by class, not position: adding a label ahead of these paths
+   silently broke a :first-child rule and the bars rendered black. */
+.iv-specbars { fill: url(#specg); }
+.iv-specpeak { stroke: rgba(255, 214, 165, 0.7); stroke-width: 1.2; }
 
 /* Pressure nodes — the cross-sections the standing wave is not pushing on. */
 .iv-node {

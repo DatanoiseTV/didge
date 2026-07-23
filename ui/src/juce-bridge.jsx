@@ -257,10 +257,10 @@
         const listeners = {};
         let t = 0;
         setInterval(() => {
-          t += 1 / 30;
+          t += 1 / 60;
           (listeners['levels'] || []).forEach((cb) => cb(mockLevels(t)));
           (listeners['presetInfo'] || []).forEach((cb) => cb({ name: 'Deep Drone', dirty: false }));
-        }, 33);
+        }, 16);
         return {
           addEventListener: (name, cb) => { (listeners[name] = listeners[name] || []).push(cb); },
           removeEventListener: (name, cb) => {
