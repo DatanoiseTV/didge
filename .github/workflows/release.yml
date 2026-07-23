@@ -1,0 +1,155 @@
+# Release builds: installable macOS and Windows packages.
+#
+# Separate from ci.yml, which only proves the tree compiles and the suites
+# pass. This one builds what a user actually downloads: a universal macOS
+# binary and a Windows x64 build of every format, zipped with a short install
+# note. Runs on a version tag, or on demand from the Actions tab.
+
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: [ 'v*' ]
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macOS (universal)
+            package: didge-macos
+          - os: windows-2022
+            label: Windows (x64)
+            package: didge-windows
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: install macos deps
+        if: runner.os == 'macOS'
+        run: brew install ninja
+
+      - name: set up msvc environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # JUCE's FindWebView2 does not fetch the SDK — it expects the
+      # Microsoft.Web.WebView2 NuGet package on disk (NEEDS_WEBVIEW2 TRUE).
+      - name: install webview2 sdk
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          nuget install Microsoft.Web.WebView2 -Version 1.0.3485.44 \
+                -OutputDirectory webview2-sdk -NonInteractive
+          echo "WEBVIEW2_DIR=$(cygpath -m "$PWD/webview2-sdk")" >> "$GITHUB_ENV"
+
+      # Both architectures on macOS, so the download runs on Apple silicon and
+      # Intel alike. It doubles the compile, which only matters here. The
+      # architecture list is quoted: its separator is a semicolon, which an
+      # unquoted shell would read as the end of the command.
+      - name: configure
+        shell: bash
+        run: |
+          ARGS=(-S . -B build -G Ninja
+                -DCMAKE_BUILD_TYPE=Release
+                -DDIDGE_INSTALL_LOCAL=OFF)
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            ARGS+=("-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64")
+          fi
+          if [[ -n "${WEBVIEW2_DIR:-}" ]]; then
+            ARGS+=("-DJUCE_WEBVIEW2_PACKAGE_LOCATION=$WEBVIEW2_DIR")
+          fi
+          cmake "${ARGS[@]}"
+
+      - name: build
+        shell: bash
+        run: cmake --build build --target Didge_All Didge_CLAP didge_dsp_tests didge_state_tests -j
+
+      # A release that does not play in tune is not a release.
+      - name: tests
+        shell: bash
+        run: ctest --test-dir build --output-on-failure
+
+      - name: verify macos binary is universal
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          BIN=build/Didge_artefacts/Release/VST3/Didge.vst3/Contents/MacOS/Didge
+          lipo -info "$BIN"
+          lipo -info "$BIN" | grep -q "arm64" || { echo "missing arm64 slice"; exit 1; }
+          lipo -info "$BIN" | grep -q "x86_64" || { echo "missing x86_64 slice"; exit 1; }
+
+      - name: package
+        shell: bash
+        run: |
+          set -euo pipefail
+          ART=build/Didge_artefacts/Release
+          STAGE="stage/Didge"
+          mkdir -p "$STAGE"
+
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            cp -R "$ART/VST3/Didge.vst3"            "$STAGE/"
+            cp -R "$ART/AU/Didge.component"         "$STAGE/"
+            cp -R "$ART/CLAP/Didge.clap"            "$STAGE/"
+            cp -R "$ART/Standalone/Didge.app"       "$STAGE/"
+          else
+            cp -R "$ART/VST3/Didge.vst3"            "$STAGE/"
+            cp -R "$ART/CLAP/Didge.clap"            "$STAGE/"
+            cp -R "$ART/Standalone/Didge.exe"       "$STAGE/"
+          fi
+
+          cp README.md CHANGELOG.md LICENSE "$STAGE/"
+          cp .github/INSTALL-${{ runner.os }}.txt "$STAGE/INSTALL.txt"
+
+          # ditto preserves bundle structure and resource forks; plain zip on
+          # macOS can mangle a .component or .app.
+          mkdir -p dist
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            ditto -c -k --sequesterRsrc --keepParent "$STAGE" "dist/${{ matrix.package }}.zip"
+          else
+            7z a -tzip "dist/${{ matrix.package }}.zip" "$STAGE" > /dev/null
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}
+          path: dist/*.zip
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.zip \
+            --title "Didge ${GITHUB_REF_NAME}" \
+            --generate-notes \
+            --notes "Unsigned builds. See INSTALL.txt inside the archive for how to open them on macOS and Windows."

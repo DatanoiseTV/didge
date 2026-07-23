@@ -121,6 +121,14 @@ job: at a quarter-octave the bands are wider than the 73 Hz spacing of this
 drone's harmonics above about the third, so everything merged into an envelope.
 The FFT resolves them and, per sample, costs less than thirty-two filters did.
 
+## Installing
+
+Tagged releases carry a universal macOS build and a Windows x64 build of every
+format, under [Releases](https://github.com/DatanoiseTV/didge/releases). Both
+are unsigned, so the first launch needs one confirmation step; the archive
+contains an INSTALL note with the exact commands. Building from source avoids
+that entirely.
+
 ## Building
 
 ```sh
