@@ -56,6 +56,12 @@ didge::EngineParams DidgeAudioProcessor::buildEngineParams() const
     p.vibRate     = raw (vibRate);
     p.vibDepth    = raw (vibDepth);
     p.breath      = raw (breathNoise);
+    p.decayOn     = raw (decayOn) > 0.5f;
+    p.decayMs     = raw (decay);
+    p.sustain     = raw (sustain);
+
+    p.velTarget   = static_cast<int> (raw (velTarget));
+    p.velAmount   = raw (velAmount);
 
     p.tensionSemis = raw (tension);
     p.lipDamp      = raw (lipDamp);

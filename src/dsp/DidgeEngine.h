@@ -20,6 +20,11 @@
 namespace didge
 {
 
+// What MIDI velocity controls. Kept here rather than with the parameter IDs
+// because the DSP core does not depend on JUCE; ids::velTargetNames lists the
+// same options in the same order and the two must stay in step.
+enum class VelTarget { off = 0, breath, breathAttack, embouchure, brightness };
+
 // Control-rate parameters, in real units, resolved once per block by the
 // plugin processor (or the tests) from whatever front end drives the engine.
 struct EngineParams
@@ -28,6 +33,13 @@ struct EngineParams
     float pressure   = 0.62f;   // 0..1 -> lung pressure
     float attackMs   = 40.0f;
     float releaseMs  = 120.0f;
+    bool  decayOn    = false;   // optional decay stage under a held note
+    float decayMs    = 500.0f;
+    float sustain    = 0.0f;    // level the decay falls to, 0..1
+
+    // Performance
+    int   velTarget  = 1;       // see ids::VelTarget
+    float velAmount  = 0.6f;
     float vibRate    = 4.5f;    // Hz
     float vibDepth   = 0.0f;    // 0..1
     float breath     = 0.25f;   // turbulence noise 0..1
@@ -202,6 +214,7 @@ private:
     // Envelopes / modulation state
     float pressureEnv = 0.0f;      // Pa
     float transientEnv = 0.0f;
+    bool  inDecay = false;         // past the attack of a held note
     float vibPhase = 0.0f;
     float growlPhase = 0.0f;
     float lipFreqSm = 66.0f;       // Hz, glided lip resonance

@@ -114,6 +114,48 @@ function PKnob({ id, size, alt }) {
 }
 
 /* ---- Panel section header ---- */
+/* ---- Toggle chip, bound straight to a bool parameter ---- */
+function PToggle({ id, label }) {
+  const [on, setOn] = JuceBridge.useJuceToggle(id);
+  return (
+    <button className="chip" data-on={on ? '1' : '0'} onClick={() => setOn(!on)}>
+      <span className="led" />{label}
+    </button>
+  );
+}
+
+/* ---- Segmented control, bound to a choice parameter ---- */
+function PSeg({ id, options, compact = false }) {
+  const [idx, setIdx] = JuceBridge.useJuceChoice(id, options);
+  return (
+    <div className={'seg' + (compact ? ' compact' : '')}>
+      {options.map((o, i) => (
+        <button key={o} className={i === idx ? 'on' : ''} onClick={() => setIdx(i)}>{o}</button>
+      ))}
+    </div>
+  );
+}
+
+/* ---- Cycling selector for choice parameters ----
+   A segmented control needs one cell per option, which does not survive a
+   narrow panel once there are more than three or four. This shows only the
+   current value and steps through the list, so it stays the same width
+   whatever the parameter offers. */
+function PCycle({ id, options, label }) {
+  const [idx, setIdx] = JuceBridge.useJuceChoice(id, options);
+  const step = (d) => setIdx((idx + d + options.length) % options.length);
+  return (
+    <div className="cyc">
+      {label && <span className="cyclabel">{label}</span>}
+      <div className="cycbody">
+        <button className="cycarrow" onClick={() => step(-1)} title="Previous">&#8249;</button>
+        <span className="cycval">{options[idx]}</span>
+        <button className="cycarrow" onClick={() => step(1)} title="Next">&#8250;</button>
+      </div>
+    </div>
+  );
+}
+
 function PHead({ title, meta }) {
   return (
     <div className="phead">
@@ -188,5 +230,5 @@ function LiveBar({ field, full = 1, label, unit, digits = 2, scale = 1 }) {
   );
 }
 
-Object.assign(window, { Knob, PKnob, PHead, LiveMeter, LiveBar,
+Object.assign(window, { Knob, PKnob, PToggle, PSeg, PCycle, PHead, LiveMeter, LiveBar,
                         polar, arcPath, beginVerticalDrag, A0, A1, SWEEP });

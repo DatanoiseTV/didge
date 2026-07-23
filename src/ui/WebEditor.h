@@ -51,9 +51,13 @@ private:
     // relays MUST outlive the browser. Members destruct in reverse
     // declaration order — bindings are declared BEFORE `webView` so they are
     // destroyed after it.
-    struct SliderBinding { std::unique_ptr<juce::WebSliderRelay> relay; std::unique_ptr<juce::WebSliderParameterAttachment> attach; };
+    struct SliderBinding { std::unique_ptr<juce::WebSliderRelay>       relay; std::unique_ptr<juce::WebSliderParameterAttachment>       attach; };
+    struct ToggleBinding { std::unique_ptr<juce::WebToggleButtonRelay> relay; std::unique_ptr<juce::WebToggleButtonParameterAttachment> attach; };
+    struct ComboBinding  { std::unique_ptr<juce::WebComboBoxRelay>     relay; std::unique_ptr<juce::WebComboBoxParameterAttachment>     attach; };
 
     std::vector<SliderBinding> sliderBindings;
+    std::vector<ToggleBinding> toggleBindings;
+    std::vector<ComboBinding>  comboBindings;
 
     std::unique_ptr<juce::WebBrowserComponent> webView;
 

@@ -21,6 +21,18 @@ function BreathPanel() {
         <PKnob id="vibDepth" alt />
         <PKnob id="breathNoise" alt />
       </div>
+      {/* Decay is off by default: a didgeridoo sustains. Switched on, the
+          breath runs out under a held note, which turns the model into a
+          struck exciter rather than a drone. */}
+      <div className="prow">
+        <PToggle id="decayOn" label="DECAY" />
+        <PKnob id="decay" size="sm" />
+        <PKnob id="sustain" size="sm" />
+      </div>
+      <div className="prow vel">
+        <PCycle id="velTarget" options={VEL_TARGETS} label="VELOCITY TO" />
+        <PKnob id="velAmount" size="sm" />
+      </div>
     </div>
   );
 }

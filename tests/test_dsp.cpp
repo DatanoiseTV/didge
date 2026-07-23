@@ -361,6 +361,78 @@ static void testTootRegister()
 }
 
 // ---------------------------------------------------------------------------
+// The optional decay stage must actually run the breath out under a held
+// note, and must not do so when it is switched off.
+// ---------------------------------------------------------------------------
+static void testDecayStage()
+{
+    EngineParams sustained;
+    EngineParams decayed = sustained;
+    decayed.decayOn = true;
+    decayed.decayMs = 300.0f;
+    decayed.sustain = 0.0f;
+
+    DidgeEngine e1; e1.prepare (kFs, 256);
+    DidgeEngine e2; e2.prepare (kFs, 256);
+    const auto a = hold (e1, sustained, 38, 3.0f);
+    const auto b = hold (e2, decayed,   38, 3.0f);
+
+    const float aEarly = rmsOf (a, 0.3f, 0.5f), aLate = rmsOf (a, 2.5f, 3.0f);
+    const float bEarly = rmsOf (b, 0.3f, 0.5f), bLate = rmsOf (b, 2.5f, 3.0f);
+
+    CHECK (aLate > 0.4f * aEarly,
+           "the drone died without a decay stage: %.5f early, %.5f late", aEarly, aLate);
+    CHECK (bEarly > 0.004f, "decay stage never spoke at all: %.5f", bEarly);
+    CHECK (bLate < 0.05f * bEarly,
+           "decay stage did not run the breath out: %.5f early, %.5f late", bEarly, bLate);
+
+    // A full sustain level should behave like no decay at all.
+    EngineParams held = decayed;
+    held.sustain = 1.0f;
+    DidgeEngine e3; e3.prepare (kFs, 256);
+    const auto c = hold (e3, held, 38, 3.0f);
+    CHECK (rmsOf (c, 2.5f, 3.0f) > 0.4f * rmsOf (c, 0.3f, 0.5f),
+           "full sustain still decayed away");
+}
+
+// ---------------------------------------------------------------------------
+// Velocity routing must change the sound, and must do nothing when off.
+// ---------------------------------------------------------------------------
+static void testVelocityRouting()
+{
+    auto renderVel = [] (int target, float vel)
+    {
+        EngineParams p;
+        p.velTarget = target;
+        p.velAmount = 1.0f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        std::vector<float> L (256), R (256), out;
+        const int total = (int) (2.5f * kFs);
+        int done = 0;
+        while (done < total)
+        {
+            const int n = std::min (256, total - done);
+            NoteEvent ev { 0, NoteEvent::noteOn, 38, vel };
+            e.process (L.data(), R.data(), n, p, done == 0 ? &ev : nullptr, done == 0 ? 1 : 0);
+            for (int i = 0; i < n; ++i) out.push_back (0.5f * (L[i] + R[i]));
+            done += n;
+        }
+        return rmsOf (out, 1.8f, 2.5f);
+    };
+
+    // Off: velocity must not change the level.
+    const float offSoft = renderVel (0, 0.2f), offHard = renderVel (0, 1.0f);
+    CHECK (std::abs (offSoft - offHard) < 0.15f * std::max (offSoft, offHard),
+           "velocity changed the sound with routing off: %.5f vs %.5f", offSoft, offHard);
+
+    // Breath: harder must be louder.
+    const float bSoft = renderVel (1, 0.2f), bHard = renderVel (1, 1.0f);
+    CHECK (bHard > 1.5f * bSoft,
+           "velocity to breath did not scale the level: %.5f soft, %.5f hard", bSoft, bHard);
+}
+
+// ---------------------------------------------------------------------------
 // Silence: with no breath there is no energy source, so the model must fall
 // genuinely silent rather than settle into a low-level limit cycle.
 // ---------------------------------------------------------------------------
@@ -485,6 +557,8 @@ int main()
     testVowelFormants();
     testGrowl();
     testTootRegister();
+    testDecayStage();
+    testVelocityRouting();
     testReleaseToSilence();
     testStability();
     testSampleRates();

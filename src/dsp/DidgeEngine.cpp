@@ -182,6 +182,7 @@ void DidgeEngine::reset()
     gate = false;
     pressureEnv = 0.0f;
     transientEnv = 0.0f;
+    inDecay = false;
     vibPhase = growlPhase = 0.0f;
     bpZ1 = bpZ2 = breathLp = 0.0f;
     dcX = dcY = tiltPrev = 0.0f;
@@ -219,6 +220,7 @@ void DidgeEngine::handleEvent (const NoteEvent& e)
             {
                 noteVelocity = e.velocity;
                 transientEnv = 0.4f + 0.6f * e.velocity;   // tongued attack chiff
+                inDecay = false;                           // retrigger the envelope
             }
             gate = true;
             break;
@@ -313,14 +315,24 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     retune (p, false);
 
     tract.setVowel (p.vowelX, p.vowelY);
-    lips.setDamping (0.05f + 0.45f * p.lipDamp);
 
     // Reaching the overblown register takes a tighter embouchure as well as a
     // higher lip resonance — with the loose setting that suits the drone, the
     // toot barely speaks (measured 0.0007 rms against 0.038 when tightened).
     // A player does this without thinking, so asking for the higher note is
     // enough here: pressing it also firms the lips.
-    const float embNow = tootNote >= 0 ? p.embouchure * 0.45f : p.embouchure;
+    float embNow = tootNote >= 0 ? p.embouchure * 0.45f : p.embouchure;
+    float dampNow = p.lipDamp;
+    {
+        const auto v = static_cast<VelTarget> (p.velTarget);
+        const float vn = std::max (0.0f, std::min (1.0f, noteVelocity));
+        const float a = std::max (0.0f, std::min (1.0f, p.velAmount));
+        if (v == VelTarget::embouchure)
+            embNow *= 1.0f - a * 0.6f * vn;          // harder note, firmer lips
+        else if (v == VelTarget::brightness)
+            dampNow *= 1.0f - a * 0.8f * vn;         // less damping, brighter
+    }
+    lips.setDamping (0.05f + 0.45f * dampNow);
     lips.setRestOpening (-0.6e-3f + 1.8e-3f * embNow);
 
     const float bendMul = std::pow (2.0f, (bendSemis + p.tensionSemis) / 12.0f);
@@ -350,18 +362,33 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     lipFreqTarget = lipBase * bendMul;
     vTootActive.store (tootNote >= 0, std::memory_order_relaxed);
 
+    // Velocity routing. A wind player blowing harder also tightens up and
+    // tongues faster, so the destinations beyond plain breath are the ones
+    // that follow from the same gesture.
+    const auto vt = static_cast<VelTarget> (p.velTarget);
+    const float velN = std::max (0.0f, std::min (1.0f, noteVelocity));
+    const float amt = std::max (0.0f, std::min (1.0f, p.velAmount));
+    const bool  velToBreath = vt == VelTarget::breath
+                           || vt == VelTarget::breathAttack;
+
+    const float velScale = velToBreath ? (1.0f - amt) + amt * (0.25f + 0.75f * velN) : 1.0f;
+    const float pTargetOn = kMaxLungPressure * p.pressure * velScale
+                          * std::max (0.0f, std::min (1.5f, ccPressureScale));
+
+    // Harder notes speak faster; softer ones ease in.
+    float attackMs = std::max (1.0f, p.attackMs);
+    if (vt == VelTarget::breathAttack)
+        attackMs *= 1.0f - amt * 0.85f * velN;
+
     const float lipGlide = 1.0f - std::exp (-1.0f / (0.030f * fs));
-    const float envAtk   = 1.0f - std::exp (-1.0f / (std::max (1.0f, p.attackMs)  * 0.001f * fs));
+    const float envAtk   = 1.0f - std::exp (-1.0f / (std::max (1.0f, attackMs)   * 0.001f * fs));
     const float envRel   = 1.0f - std::exp (-1.0f / (std::max (5.0f, p.releaseMs) * 0.001f * fs));
+    const float envDec   = 1.0f - std::exp (-1.0f / (std::max (10.0f, p.decayMs)  * 0.001f * fs));
     const float trDecay  = std::exp (-1.0f / (0.060f * fs));
     const float vibInc   = p.vibRate / fs;
 
     const float growlF   = droneTargetHz * std::pow (2.0f, p.growlSemis / 12.0f);
     const float growlInc = growlF / fs;
-
-    const float velScale = 0.55f + 0.45f * noteVelocity;
-    const float pTargetOn = kMaxLungPressure * p.pressure * velScale
-                          * std::max (0.0f, std::min (1.5f, ccPressureScale));
 
     const float zBore = bore.mouthImpedance();
     const float dcR = 1.0f - 6.2831853f * 18.0f / fs;
@@ -381,8 +408,34 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
             handleEvent (events[evIdx++]);
 
         // --- breath pressure -------------------------------------------------
-        const float target = gate ? pTargetOn : 0.0f;
-        const float k = target > pressureEnv ? envAtk : envRel;
+        // Attack, then optionally decay toward a sustain level while the note
+        // is still held. With sustain at zero that gives a short struck
+        // excitation rather than a drone: the breath simply runs out.
+        float target, k;
+        if (! gate)
+        {
+            target = 0.0f;
+            k = envRel;
+        }
+        else if (p.decayOn)
+        {
+            if (! inDecay)
+            {
+                target = pTargetOn;
+                k = envAtk;
+                if (pressureEnv >= 0.95f * pTargetOn) inDecay = true;
+            }
+            else
+            {
+                target = pTargetOn * std::max (0.0f, std::min (1.0f, p.sustain));
+                k = envDec;
+            }
+        }
+        else
+        {
+            target = pTargetOn;
+            k = target > pressureEnv ? envAtk : envRel;
+        }
         pressureEnv += (target - pressureEnv) * k;
         transientEnv *= trDecay;
 

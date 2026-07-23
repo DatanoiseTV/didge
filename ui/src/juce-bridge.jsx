@@ -38,6 +38,7 @@
     unit:       linPair(0, 1),
     attack:     skewPair(1, 500, 60),
     release:    skewPair(5, 2000, 200),
+    decay:      skewPair(20, 4000, 400),
     vibRate:    skewPair(0.1, 12, 4),
     tension:    linPair(-12, 12),
     growlPitch: linPair(0, 36),
@@ -46,6 +47,9 @@
   };
 
   const VOWELS = ['oo', 'oh', 'ah', 'eh', 'ee'];
+  /* Short forms for the segmented control — the host sees the full names
+     from the parameter itself; these only have to fit the panel. */
+  const VEL_TARGETS = ['Off', 'Breath', 'Br+Atk', 'Emb', 'Bright'];
 
   const pct  = (n) => Math.round(n * 100) + '%';
   const msOf = (m) => (n) => { const v = m.to(n); return (v < 10 ? v.toFixed(1) : Math.round(v)) + ' ms'; };
@@ -64,6 +68,9 @@
     vibRate:     { label: 'Vib Rate',     map: M.vibRate,    def: M.vibRate.from(4.5),     format: hzOf(M.vibRate) },
     vibDepth:    { label: 'Vib Depth',    map: M.unit,       def: 0.0,                     format: pct },
     breathNoise: { label: 'Noise',        map: M.unit,       def: 0.25,                    format: pct },
+    decay:       { label: 'Decay',        map: M.decay,      def: M.decay.from(500),       format: msOf(M.decay) },
+    sustain:     { label: 'Sustain',      map: M.unit,       def: 0.0,                     format: pct },
+    velAmount:   { label: 'Vel Amount',   map: M.unit,       def: 0.6,                     format: pct },
 
     tension:     { label: 'Lip Tension',  map: M.tension,    def: M.tension.from(0),       format: semi(M.tension), bipolar: true },
     lipDamp:     { label: 'Lip Damp',     map: M.unit,       def: 0.18,                    format: pct },
@@ -102,7 +109,7 @@
       const ls = [];
       return { addListener: (f) => ls.push(f), removeListener: () => {}, fire: (...a) => ls.forEach((f) => f(...a)) };
     };
-    const sliders = {};
+    const sliders = {}, toggles = {}, combos = {};
 
     /* Vocal-tract area functions, glottis -> mouth, cm^2. Coarse eight-section
        approximations of the five vowels the model interpolates between. */
@@ -225,6 +232,16 @@
           emitEvent: () => {},
         };
       })(),
+      getToggleState: (id) => toggles[id] || (toggles[id] = (() => {
+        let v = false;
+        const ev = mkEvent();
+        return { getValue: () => v, setValue: (nv) => { v = !!nv; ev.fire(); }, valueChangedEvent: ev };
+      })()),
+      getComboBoxState: (id) => combos[id] || (combos[id] = (() => {
+        let idx = id === 'velTarget' ? 1 : 0;
+        const ev = mkEvent();
+        return { getChoiceIndex: () => idx, setChoiceIndex: (ni) => { idx = ni; ev.fire(); }, valueChangedEvent: ev };
+      })()),
       getNativeFunction: (name) => {
         if (name === 'listFactoryPresets')
           return () => Promise.resolve(['Deep Drone', 'Yidaki', 'Termite Bore', 'Circular Breath',
@@ -275,6 +292,34 @@
 
   /* Subscribes a ref to an event without re-rendering — for anything that
      paints from a rAF loop at display rate (meters, the instrument view). */
+  function useJuceToggle(id) {
+    const relay = global.Juce.getToggleState(id);
+    const [v, setV] = useState(!!relay.getValue());
+    useEffect(() => {
+      const onChanged = () => setV(!!relay.getValue());
+      relay.valueChangedEvent.addListener(onChanged);
+      return undefined;
+    }, [id]);
+    const set = useCallback((b) => { relay.setValue(!!b); setV(!!b); }, [id]);
+    return [v, set];
+  }
+
+  function useJuceChoice(id, options) {
+    const relay = global.Juce.getComboBoxState(id);
+    const [idx, setIdx] = useState(relay.getChoiceIndex());
+    useEffect(() => {
+      const onChanged = () => setIdx(relay.getChoiceIndex());
+      relay.valueChangedEvent.addListener(onChanged);
+      return undefined;
+    }, [id]);
+    const setIndex = useCallback((ni) => {
+      const c = Math.max(0, Math.min(options.length - 1, ni));
+      relay.setChoiceIndex(c);
+      setIdx(c);
+    }, [id, options]);
+    return [idx, setIndex];
+  }
+
   function useEventRef(name, initial) {
     const ref = React.useRef(initial);
     useEffect(() => {
@@ -285,7 +330,9 @@
     return ref;
   }
 
-  global.JuceBridge = { useJuceSlider, useJuceEvent, useEventRef, emitNative, PARAMS, VOWELS, M };
+  global.JuceBridge = { useJuceSlider, useJuceToggle, useJuceChoice, useJuceEvent, useEventRef,
+                        emitNative, PARAMS, VOWELS, VEL_TARGETS, M };
   global.PARAMS = PARAMS;
   global.VOWELS = VOWELS;
+  global.VEL_TARGETS = VEL_TARGETS;
 })(window);

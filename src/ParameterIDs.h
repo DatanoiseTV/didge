@@ -26,6 +26,20 @@ namespace didge::ids
     inline constexpr const char* vibRate    = "vibRate";     // Hz
     inline constexpr const char* vibDepth   = "vibDepth";    // 0..1
     inline constexpr const char* breathNoise= "breathNoise"; // 0..1
+    inline constexpr const char* decayOn    = "decayOn";     // bool
+    inline constexpr const char* decay      = "decay";       // ms
+    inline constexpr const char* sustain    = "sustain";     // 0..1
+
+    // Performance
+    inline constexpr const char* velTarget  = "velTarget";   // choice
+    inline constexpr const char* velAmount  = "velAmount";   // 0..1
+
+    // What MIDI velocity is allowed to control. Blowing harder is the natural
+    // reading, but a player also tightens up and attacks faster. The order
+    // must match didge::VelTarget in dsp/DidgeEngine.h.
+    inline const juce::StringArray velTargetNames {
+        "Off", "Breath", "Breath + Attack", "Embouchure", "Brightness"
+    };
 
     // Embouchure
     inline constexpr const char* tension    = "tension";     // semitones
@@ -54,6 +68,8 @@ namespace didge::ids
     inline juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         using P  = juce::AudioParameterFloat;
+        using Pb = juce::AudioParameterBool;
+        using Pc = juce::AudioParameterChoice;
         using Rng = juce::NormalisableRange<float>;
 
         std::vector<std::unique_ptr<juce::RangedAudioParameter>> params;
@@ -90,6 +106,25 @@ namespace didge::ids
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.0f, attrs (pct)));
         add (std::make_unique<P> (juce::ParameterID { breathNoise, 1 }, "Breath Noise",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.25f, attrs (pct)));
+
+        // Optional decay stage. With it off the drone simply sustains, which
+        // is how the instrument is normally played; switching it on lets the
+        // breath fall away under a held note, for short struck excitations.
+        add (std::make_unique<Pb> (juce::ParameterID { decayOn, 1 }, "Decay On", false));
+        {
+            Rng r { 20.0f, 4000.0f };
+            r.setSkewForCentre (400.0f);
+            add (std::make_unique<P> (juce::ParameterID { decay, 1 }, "Decay", r, 500.0f,
+                                      attrs ([] (float v, int) { return juce::String (juce::roundToInt (v)) + " ms"; })));
+        }
+        add (std::make_unique<P> (juce::ParameterID { sustain, 1 }, "Sustain",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.0f, attrs (pct)));
+
+        // ---- Performance ----------------------------------------------------
+        add (std::make_unique<Pc> (juce::ParameterID { velTarget, 1 }, "Velocity To",
+                                   velTargetNames, 1));
+        add (std::make_unique<P> (juce::ParameterID { velAmount, 1 }, "Velocity Amount",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.6f, attrs (pct)));
 
         // ---- Embouchure -----------------------------------------------------
         add (std::make_unique<P> (juce::ParameterID { tension, 1 }, "Lip Tension",

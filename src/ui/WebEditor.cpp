@@ -98,16 +98,19 @@ namespace
     // JS side (ui/src). A typo here becomes a dead control at runtime.
     constexpr const char* kFloatIds[] = {
         "pressure", "attack", "release", "vibRate", "vibDepth", "breathNoise",
+        "decay", "sustain", "velAmount",
         "tension", "lipDamp", "embouchure",
         "tractMix", "vowelX", "vowelY", "growl", "growlPitch",
         "tune", "bell", "flare", "texture", "wallDamp",
         "spaceMix", "spaceSize", "outGain",
     };
+    constexpr const char* kBoolIds[]   = { "decayOn" };
+    constexpr const char* kChoiceIds[] = { "velTarget" };
 
     // Design canvas. The JS fit scaler letterbox-scales #plugin to the window;
     // the editor constrains resize to the same aspect so there are no borders.
     constexpr int kDesignW = 1280;
-    constexpr int kDesignH = 720;
+    constexpr int kDesignH = 830;
 }
 
 // ============================================================================
@@ -217,6 +220,8 @@ WebEditor::WebEditor (::DidgeAudioProcessor& proc)
             });
 
     sliderBindings.reserve (juce::numElementsInArray (kFloatIds));
+    toggleBindings.reserve (juce::numElementsInArray (kBoolIds));
+    comboBindings .reserve (juce::numElementsInArray (kChoiceIds));
 
     for (auto id : kFloatIds)
     {
@@ -225,6 +230,20 @@ WebEditor::WebEditor (::DidgeAudioProcessor& proc)
         options = options.withOptionsFrom (*b.relay);
         sliderBindings.push_back (std::move (b));
     }
+    for (auto id : kBoolIds)
+    {
+        ToggleBinding b;
+        b.relay = std::make_unique<juce::WebToggleButtonRelay> (juce::String (id));
+        options = options.withOptionsFrom (*b.relay);
+        toggleBindings.push_back (std::move (b));
+    }
+    for (auto id : kChoiceIds)
+    {
+        ComboBinding b;
+        b.relay = std::make_unique<juce::WebComboBoxRelay> (juce::String (id));
+        options = options.withOptionsFrom (*b.relay);
+        comboBindings.push_back (std::move (b));
+    }
 
     webView = std::make_unique<juce::WebBrowserComponent> (options);
     addAndMakeVisible (*webView);
@@ -232,6 +251,12 @@ WebEditor::WebEditor (::DidgeAudioProcessor& proc)
     for (size_t i = 0; i < std::size (kFloatIds); ++i)
         if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (kFloatIds[i])))
             sliderBindings[i].attach = std::make_unique<juce::WebSliderParameterAttachment> (*p, *sliderBindings[i].relay, apvts.undoManager);
+    for (size_t i = 0; i < std::size (kBoolIds); ++i)
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (kBoolIds[i])))
+            toggleBindings[i].attach = std::make_unique<juce::WebToggleButtonParameterAttachment> (*p, *toggleBindings[i].relay, apvts.undoManager);
+    for (size_t i = 0; i < std::size (kChoiceIds); ++i)
+        if (auto* p = dynamic_cast<juce::RangedAudioParameter*> (apvts.getParameter (kChoiceIds[i])))
+            comboBindings[i].attach = std::make_unique<juce::WebComboBoxParameterAttachment> (*p, *comboBindings[i].relay, apvts.undoManager);
 
     // Open at design size when the display can hold it, else the largest
     // same-aspect box that fits ~92% of the primary display.

@@ -19,7 +19,7 @@
    ============================================================ */
 
 /* ---- drawing frame (SVG user units) ---- */
-const VB_W = 1280, VB_H = 306, CY = 153;
+const VB_W = 1280, VB_H = 296, CY = 148;
 const TRACT_X0 = 58, TRACT_X1 = 200;   // glottis -> mouth
 const LIP_X = 214, LIP_W = 32;
 const BORE_X0 = 252, BORE_X1 = 1128;
