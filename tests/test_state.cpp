@@ -137,6 +137,47 @@ static void testPresetNamePersists()
            "edits made after loading a preset were lost");
 }
 
+// Parameter ORDER is part of the plugin's published interface, not just the
+// set of ids. Hosts address parameters by position as well as by id, so
+// inserting a new one in the middle shifts every parameter after it and a
+// session saved by an earlier build reloads with each value landing on the
+// wrong control -- heard as a transposed instrument that drops notes and
+// retriggers, with nothing wrong in the audio path. New parameters go at the
+// end. This pins the prefix that shipped so the mistake cannot recur silently.
+static void testParameterOrderIsStable()
+{
+    static const char* const published[] = {
+        "pressure", "attack", "release", "vibRate", "vibDepth", "breathNoise",
+        "decayOn", "decay", "sustain", "velTarget", "velAmount", "humanize",
+        "tension", "lipDamp", "embouchure", "bendRange", "tractMix", "vowelX",
+        "vowelY", "growl", "growlPitch", "tune", "bell", "flare",
+        "texture", "wallDamp", "boreProfile", "material", "spaceMix", "spaceSize",
+        "outGain", "exciter", "boreDia",
+    };
+
+    DidgeAudioProcessor p;
+    juce::StringArray order;
+    for (auto* param : p.getParameters())
+        if (auto* rp = dynamic_cast<juce::RangedAudioParameter*> (param))
+            order.add (rp->getParameterID());
+
+    if (std::getenv ("DIDGE_DUMP_ORDER") != nullptr)
+    {
+        for (int i = 0; i < order.size(); ++i)
+            std::cout << (i % 6 == 0 ? "\n        " : "") << "\"" << order[i] << "\", ";
+        std::cout << std::endl;
+    }
+    const int n = (int) (sizeof (published) / sizeof (published[0]));
+    CHECK (order.size() >= n,
+           "parameters went missing: expected at least " << n << ", got " << order.size());
+
+    for (int i = 0; i < juce::jmin (n, order.size()); ++i)
+        CHECK (order[i] == published[i],
+               "parameter " << i << " moved: expected \"" << published[i]
+               << "\", found \"" << order[i]
+               << "\". Append new parameters at the end of the layout instead.");
+}
+
 static void testFactoryPresets()
 {
     DidgeAudioProcessor p;
@@ -226,6 +267,7 @@ int main()
     testStateRoundTrip();
     testAllParametersRoundTrip();
     testPresetNamePersists();
+    testParameterOrderIsStable();
     testFactoryPresets();
     testDirtyTracking();
     testBusLayouts();

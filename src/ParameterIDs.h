@@ -159,11 +159,6 @@ namespace didge::ids
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.18f, attrs (pct)));
         add (std::make_unique<P> (juce::ParameterID { embouchure, 1 }, "Embouchure",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.5f, attrs (pct)));
-        // What turns the breath into an oscillation. It changes which side of a
-        // bore resonance the instrument sounds on, so it changes the
-        // instrument, not just its colour.
-        add (std::make_unique<Pc> (juce::ParameterID { exciter, 1 }, "Exciter",
-                                   exciterNames, 0));
         add (std::make_unique<P> (juce::ParameterID { bendRange, 1 }, "Bend Range",
                                   Rng { 0.0f, 24.0f, 0.5f }, 2.0f,
                                   attrs ([] (float v, int)
@@ -202,16 +197,6 @@ namespace didge::ids
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
         add (std::make_unique<P> (juce::ParameterID { wallDamp, 1 }, "Wall Damping",
                                   Rng { 0.0f, 1.0f, 0.0f }, 0.3f, attrs (pct)));
-        // Overall bore width, half to double. Shown as the actual mouth-end
-        // diameter, because that is the number an instrument is described by.
-        add (std::make_unique<P> (juce::ParameterID { boreDia, 1 }, "Bore Diameter",
-                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
-                                  attrs ([] (float v, int)
-                                  {
-                                      const float mm = 2.0f * 14.0f
-                                                     * std::pow (2.0f, 2.0f * (v - 0.5f));
-                                      return juce::String (mm, 1) + " mm";
-                                  })));
         // The profile sets the resonance series, which is most of what makes
         // one wind instrument sound unlike another.
         add (std::make_unique<Pc> (juce::ParameterID { boreProfile, 1 }, "Bore Profile",
@@ -227,6 +212,33 @@ namespace didge::ids
         add (std::make_unique<P> (juce::ParameterID { outGain, 1 }, "Output",
                                   Rng { -24.0f, 12.0f, 0.1f }, 0.0f,
                                   attrs ([] (float v, int) { return juce::String (v, 1) + " dB"; })));
+
+        // ---- Appended after the 0.1.0 set ----------------------------------
+        // New parameters go at the END of this layout, never in the middle of
+        // it. Hosts address parameters by their position as well as their id,
+        // so inserting one beside the controls it belongs with shifts every
+        // parameter after it and a session saved by an earlier build reloads
+        // with each value landing on the wrong control. That is what happened
+        // when these two were first added next to their neighbours: the
+        // instrument came back transposed, dropping notes and retriggering,
+        // with nothing wrong in the audio path at all. Grouping is the user
+        // interface's job -- panels.jsx puts these where they belong.
+
+        // What turns the breath into an oscillation. It changes which side of
+        // a bore resonance the instrument sounds on, so it changes the
+        // instrument, not just its colour.
+        add (std::make_unique<Pc> (juce::ParameterID { exciter, 1 }, "Exciter",
+                                   exciterNames, 0));
+        // Overall bore width, half to double. Shown as the actual mouth-end
+        // diameter, because that is the number an instrument is described by.
+        add (std::make_unique<P> (juce::ParameterID { boreDia, 1 }, "Bore Diameter",
+                                  Rng { 0.0f, 1.0f, 0.0f }, 0.5f,
+                                  attrs ([] (float v, int)
+                                  {
+                                      const float mm = 2.0f * 14.0f
+                                                     * std::pow (2.0f, 2.0f * (v - 0.5f));
+                                      return juce::String (mm, 1) + " mm";
+                                  })));
 
         return { params.begin(), params.end() };
     }
