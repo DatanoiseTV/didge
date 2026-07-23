@@ -157,13 +157,39 @@
       const amp = env * Math.pow(10, M.outGain.to(g('outGain')) / 20);
       const db = 20 * Math.log10(Math.max(1e-5, amp * 0.85));
 
+      /* Standing wave along the bore. A didgeridoo is closed at the lips and
+         open at the bell, so pressure has its antinode at the mouth and its
+         node at the open end, and volume flow is the exact complement. The
+         real engine measures these from the waveguide; the mock reproduces
+         the same shapes so the drawing can be checked without a backend. */
+      const tootOn = g('embouchure') > 0.7 || Math.sin(t * 0.35) > 0.85;
+      const mode = tootOn ? 3 : 1;                    // quarter-wave harmonic
+      const press = [], flowSeg = [];
+      for (let i = 0; i < 16; i++) {
+        const u = i / 15;
+        press.push(Math.abs(Math.cos(u * mode * Math.PI / 2)) * env * 900);
+        flowSeg.push(Math.abs(Math.sin(u * mode * Math.PI / 2)) * env * 4e-4 + 2e-5 * env);
+      }
+
+      /* Lip opening over ~3 periods. The lips beat shut for part of every
+         cycle — that closed phase is what makes the tone buzz, so the trace
+         is a clipped swing, never a sine. */
+      const lipWave = [];
+      for (let i = 0; i < 96; i++) {
+        const ph = (i / 96) * 3 * 2 * Math.PI;
+        lipWave.push(Math.max(0, 0.0016 * env * (Math.sin(ph) + 0.35)));
+      }
+
       return {
         out: [db, db - 0.6 - 0.4 * Math.sin(t * 1.7)],
+        press, flowSeg, lipWave,
+        meanFlow: 2.2e-4 * env,
+        turb: g('breathNoise') * env,
         pressure: env,
         lipOpen: 0.004 * env * (0.4 + 0.6 * (1 - g('lipDamp'))) * (0.7 + 0.3 * g('embouchure')),
         flow: 0.001 * env * (0.5 + 0.5 * (1 - g('lipDamp'))),
         f0, toot,
-        tootActive: g('embouchure') > 0.7 || Math.sin(t * 0.35) > 0.85,
+        tootActive: tootOn,
         playing: env > 0.02,
         bore, tract,
       };

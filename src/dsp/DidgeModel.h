@@ -194,7 +194,9 @@ public:
         {
             fwd[i].clear(); bwd[i].clear();
             fPrev[i] = bPrev[i] = 0.0f;
+            pAmp[i] = uAmp[i] = 0.0f;
         }
+        uMean = 0.0f;
         bellLpState = 0.0f;
     }
 
@@ -335,6 +337,16 @@ public:
     float droneFrequency() const { return tunedF0; }
     float tootFrequency()  const { return tootF; }
 
+    // Standing-wave state along the bore, for visualisation. Pressure is
+    // p = f + b and volume flow is u = (f - b) * area / (rho*c), both taken at
+    // the segment boundaries; these are the actual waveguide variables, so a
+    // display built on them shows the real node and antinode positions rather
+    // than an assumed mode shape. Tracked as peak envelopes because the UI
+    // samples far more slowly than the wave oscillates.
+    float segmentPressure (int i) const { return pAmp[i]; }
+    float segmentFlow (int i)     const { return uAmp[i]; }
+    float meanFlow()              const { return uMean; }
+
     // Input impedance in SI units at the current tuning.
     std::complex<float> impedanceAt (float freq) const
     {
@@ -461,6 +473,18 @@ public:
         const float reflected = -0.995f * bellLpState;
         bIn[kSegments - 1] = reflected;
 
+        // Standing-wave envelopes, before the writes overwrite the scratch.
+        for (int i = 0; i < kSegments; ++i)
+        {
+            const float p = fOut[i] + bOut[i];
+            const float u = (fOut[i] - bOut[i]) * area[i] / (kAirDensity * kSpeedOfSound);
+            const float ap = std::abs (p), au = std::abs (u);
+            pAmp[i] += (ap > pAmp[i] ? envAttack : envRelease) * (ap - pAmp[i]);
+            uAmp[i] += (au > uAmp[i] ? envAttack : envRelease) * (au - uAmp[i]);
+        }
+        uMean += 0.0008f * ((fOut[0] - bOut[0]) * area[0]
+                            / (kAirDensity * kSpeedOfSound) - uMean);
+
         for (int i = 0; i < kSegments; ++i)
         {
             fwd[i].write (fIn[i]);
@@ -484,6 +508,10 @@ public:
 
     void setSmoothing (double sampleRate)
     {
+        // Envelope followers for the visualisation: quick to rise, slow to
+        // fall, so the display tracks the wave without flickering.
+        envAttack  = 1.0f - std::exp (-1.0f / (0.004f * static_cast<float> (sampleRate)));
+        envRelease = 1.0f - std::exp (-1.0f / (0.090f * static_cast<float> (sampleRate)));
         // ~25 ms glide for lengths (note changes), ~12 ms for junctions
         // (vowel-speed shape morphs are not expected on the bore; this covers
         // bell/flare automation without zipper).
@@ -613,6 +641,11 @@ private:
     float fOut[kSegments] {}, bOut[kSegments] {};   // beginStep -> finishStep scratch
     float fPrev[kSegments] {}, bPrev[kSegments] {}; // last read, for the nonlinear delay
     float nlCoeff = 0.0f;
+
+    // Visualisation envelopes of the standing wave.
+    float pAmp[kSegments] {}, uAmp[kSegments] {};
+    float uMean = 0.0f;
+    float envAttack = 0.02f, envRelease = 0.0015f;
 
     float segLen = 8.0f, segLenTarget = 8.0f;
     float gSeg = 0.999f;

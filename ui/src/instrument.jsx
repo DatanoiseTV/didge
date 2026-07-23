@@ -4,31 +4,30 @@
    A side-view section through the instrument: vocal tract on the
    left, lips, then the bore opening out to the bell on the right.
 
-   Everything that moves is driven by the `levels` event and
-   painted from a single rAF loop that mutates SVG attributes in
-   place. The 30 Hz telemetry never touches React state — a
-   re-render per event would repaint the whole panel tree and
-   fight the animation.
+   What is drawn is the engine's own state, not an illustration of
+   it. The bore outline comes from the waveguide's 16 segment
+   radii; the standing wave comes from the pressure and volume
+   flow measured at those same segment boundaries; the lips move
+   on a captured trace of the actual lip opening. So the nodes sit
+   where the model really puts them, and the air moves the way the
+   model says it moves.
 
-   The bore outline is drawn from the engine's own 16 segment
-   radii, so what you see is the geometry the waveguide is
-   actually running; the drag zones write back to the two
-   parameters that shape it.
+   Everything animates from a single rAF loop that mutates SVG
+   attributes in place. The 30 Hz telemetry never touches React
+   state — a re-render per event would repaint the whole panel
+   tree and fight the animation.
    ============================================================ */
 
 /* ---- drawing frame (SVG user units) ---- */
-/* Aspect matches the card it sits in, so the drawing fills the panel instead
-   of letterboxing inside it. */
 const VB_W = 1280, VB_H = 306, CY = 153;
 const TRACT_X0 = 58, TRACT_X1 = 200;   // glottis -> mouth
 const LIP_X = 214, LIP_W = 32;
 const BORE_X0 = 252, BORE_X1 = 1128;
 const BORE_SPAN = BORE_X1 - BORE_X0;
 /* Bore radii arrive in metres. The scale is fixed rather than fitted to the
-   current bore, so growing the bell actually grows the drawing. It is set so a
-   typical instrument keeps roughly its real proportions — a didgeridoo is
-   about eight times longer than its bell is wide, and a scale that filled the
-   frame vertically drew a squat cone instead. */
+   current bore, so growing the bell actually grows the drawing, and a
+   didgeridoo keeps roughly its real proportions (about eight times longer
+   than the bell is wide). */
 const M_PX = 1500;
 const CM_PX = 26;                      // tract radii are centimetres
 const WALL = 9;                        // drawn wall thickness
@@ -70,12 +69,17 @@ function tubePath(xs, hs, cy) {
 const DEFAULT_BORE = [0.0145, 0.0146, 0.0151, 0.0158, 0.0168, 0.0182, 0.0198, 0.0218,
                       0.0242, 0.0268, 0.0298, 0.0331, 0.0367, 0.0407, 0.0450, 0.0500];
 const DEFAULT_TRACT = [1.44, 2.92, 3.58, 2.56, 1.72, 2.08, 3.08, 3.80];
+const ZERO16 = new Array(16).fill(0);
+const ZERO96 = new Array(96).fill(0);
+
+const N_PARTICLES = 130;
 
 function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMix = 0.5, wallDamp = 0.3 }) {
   const lv = JuceBridge.useEventRef('levels', {
     out: [-90, -90], pressure: 0, lipOpen: 0, flow: 0,
     f0: 73.42, toot: 199, tootActive: false, playing: false,
     bore: DEFAULT_BORE, tract: DEFAULT_TRACT,
+    press: ZERO16, flowSeg: ZERO16, lipWave: ZERO96, meanFlow: 0, turb: 0,
   });
 
   /* Params the loop reads without re-subscribing. */
@@ -86,14 +90,18 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
   const cavityRef = useRef(null);
   const innerEdgeRef = useRef(null);
   const grainRef = useRef(null);
-  const segRef = useRef(null);
   const waveRef = useRef(null);
   const waveLineRef = useRef(null);
+  const nodeRef = useRef(null);
+  const airRef = useRef(null);
   const tractRef = useRef(null);
   const tractEdgeRef = useRef(null);
   const lipUpRef = useRef(null);
   const lipDnRef = useRef(null);
+  const lipTraceRef = useRef(null);
+  const turbRef = useRef(null);
   const bellGlowRef = useRef(null);
+  const radRefs = [useRef(null), useRef(null), useRef(null)];
   const noteRef = useRef(null);
   const hzRef = useRef(null);
   const tootRef = useRef(null);
@@ -108,7 +116,7 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
 
   useEffect(() => {
     let raf = 0, last = performance.now();
-    let phase = 0, level = 0, lipSm = 0, glowSm = 0;
+    let phase = 0, level = 0, lipSm = 0, glowSm = 0, turbSm = 0;
 
     const xs = [];
     for (let i = 0; i < 16; i++) xs.push(BORE_X0 + (i / 15) * BORE_SPAN);
@@ -118,6 +126,19 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
     for (let i = 0; i < 34; i++) {
       const s = Math.sin(i * 12.9898) * 43758.5453;
       grainSeed.push([(s - Math.floor(s)), ((s * 3.7) - Math.floor(s * 3.7))]);
+    }
+
+    /* Air parcels. Each keeps a rest position along the bore and a lateral
+       offset; the animation moves it about that rest point. */
+    const air = [];
+    for (let i = 0; i < N_PARTICLES; i++) {
+      const s = Math.sin(i * 78.233) * 43758.5453;
+      const s2 = Math.sin(i * 27.611) * 12345.6789;
+      air.push({
+        u: (i + 0.5) / N_PARTICLES,
+        lat: (s - Math.floor(s)) * 2 - 1,
+        jitter: (s2 - Math.floor(s2)),
+      });
     }
 
     const NW = 84;   // wave samples
@@ -135,11 +156,12 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         hs.push(h);
         ho.push(h + WALL);
       }
-      const hAt = (u) => {
+      const at = (arr, u) => {
         const f = Math.max(0, Math.min(1, u)) * 15;
         const i = Math.min(14, Math.floor(f));
-        return hs[i] + (hs[i + 1] - hs[i]) * (f - i);
+        return arr[i] + (arr[i + 1] - arr[i]) * (f - i);
       };
+      const hAt = (u) => at(hs, u);
 
       if (woodRef.current) woodRef.current.setAttribute('d', tubePath(xs, ho, CY));
       const cav = tubePath(xs, hs, CY);
@@ -165,13 +187,6 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         grainRef.current.setAttribute('opacity', (0.10 + 0.55 * pr.texture).toFixed(3));
       }
 
-      /* Segment boundaries of the waveguide, drawn faintly across the bore —
-         the drawing then shows the discretisation it is actually made of. */
-      let sg = '';
-      for (let i = 1; i < 15; i++)
-        sg += `M ${xs[i].toFixed(1)} ${(CY - hs[i]).toFixed(1)} L ${xs[i].toFixed(1)} ${(CY + hs[i]).toFixed(1)} `;
-      if (segRef.current) segRef.current.setAttribute('d', sg);
-
       /* ---- vocal tract inset ---- */
       const tr = (L.tract && L.tract.length === 8) ? L.tract : DEFAULT_TRACT;
       const txs = [], ths = [];
@@ -186,74 +201,184 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
       }
       if (tractEdgeRef.current) tractEdgeRef.current.setAttribute('d', td);
 
-      /* ---- envelope + standing wave ---- */
+      /* ---- envelope + phase ---- */
       const target = Math.max(0, Math.min(1, Number(L.pressure) || 0));
       level += (target - level) * (1 - Math.exp(-dt / 0.09));
 
       const f0 = Number(L.f0) > 0 ? L.f0 : 73.42;
       /* The real drone sits far above the frame rate, so the animation is
          geared down by a fixed ratio: relative pitch still reads (a higher
-         f0 pulses faster) without strobing. */
-      phase += dt * 2 * Math.PI * (f0 / 22);
+         f0 pulses faster, and the overblown register visibly doubles up)
+         without strobing against the display refresh. */
+      const wVis = 2 * Math.PI * (f0 / 22);
+      phase += dt * wVis;
       if (phase > 1e6) phase -= 1e6;
+      const cosP = Math.cos(phase), sinP = Math.sin(phase);
 
-      const toot = !!L.tootActive;
+      /* ---- standing wave, measured ----
+         press[] is the pressure envelope at each segment boundary and
+         flowSeg[] the volume-flow envelope. They are complementary: pressure
+         peaks where flow vanishes. Drawing the measured envelope means the
+         node positions are the model's, and the overblown register shows its
+         extra nodes without any special case here. */
+      const press = (L.press && L.press.length === 16) ? L.press : ZERO16;
+      const flowSeg = (L.flowSeg && L.flowSeg.length === 16) ? L.flowSeg : ZERO16;
+
+      let pMax = 1e-9, uMax = 1e-9;
+      for (let i = 0; i < 16; i++) {
+        if (press[i] > pMax) pMax = press[i];
+        if (flowSeg[i] > uMax) uMax = flowSeg[i];
+      }
+
       const damp = 1 - 0.45 * pr.wallDamp;
       const top = [], bot = [];
       for (let i = 0; i <= NW; i++) {
         const u = i / NW;
         const x = BORE_X0 + u * BORE_SPAN;
-        // Closed-open pipe: pressure antinode at the lips, node at the bell.
-        let a = Math.cos(u * Math.PI / 2) * Math.cos(phase);
-        if (toot) a += 0.62 * Math.cos(u * 3 * Math.PI / 2) * Math.cos(3 * phase);
-        a += 0.22 * Math.cos(u * 7.5 - phase * 1.6);           // travelling component
-        /* The air column is drawn as a lit body filling the bore, with the
-           standing wave swelling and shrinking it. It deliberately keeps a
-           floor everywhere: scaling by the pressure envelope alone would
-           collapse the column to nothing at the bell — a real node, but it
-           reads as an empty black tube rather than a sounding instrument. */
-        const swell = 0.46 + 0.34 * a;
-        const amp = hAt(u) * Math.max(0.12, swell) * damp * (0.34 + 0.66 * level);
+        const env = at(press, u) / pMax;                 // 0..1 measured shape
+        /* Pressure is a scalar field along the axis — it does not scale with
+           how wide the tube happens to be there. Multiplying by the bore
+           radius let the flare cancel the envelope's taper and drew the column
+           widening toward the bell, the exact opposite of the truth: a pipe
+           closed at the lips and open at the bell has its pressure antinode at
+           the LIPS and a node at the open end.
+           So the height is the measured envelope, merely clipped to fit inside
+           the wall. It therefore fills the narrow mouth, where pressure is
+           greatest, and vanishes at the open end. The oscillation modulates
+           about a floor rather than passing through zero, so the shape reads
+           at every instant instead of strobing against the frame rate. */
+        const swing = (0.42 + 0.58 * Math.abs(cosP)) * damp * (0.3 + 0.7 * level);
+        const amp = Math.min (hAt(u) - 2, 110 * env * swing) + 1.0;
         top.push([x, CY - amp]);
         bot.push([x, CY + amp]);
       }
-      const wd = smoothPath(top) + smoothPath(bot.reverse(), false) + ' Z';
+      const wd = smoothPath(top) + smoothPath(bot.slice().reverse(), false) + ' Z';
       if (waveRef.current) {
         waveRef.current.setAttribute('d', wd);
-        waveRef.current.setAttribute('opacity', (0.34 + 0.56 * level).toFixed(3));
+        waveRef.current.setAttribute('opacity', (0.30 + 0.55 * level).toFixed(3));
       }
       if (waveLineRef.current) {
         waveLineRef.current.setAttribute('d', smoothPath(top));
         waveLineRef.current.setAttribute('opacity', (0.25 + 0.65 * level).toFixed(3));
       }
 
-      /* ---- lips ---- */
-      const lipTarget = Math.max(0, Math.min(1, (Number(L.lipOpen) || 0) / 0.004));
-      lipSm += (lipTarget - lipSm) * (1 - Math.exp(-dt / 0.05));
-      const gap = 3 + lipSm * 26;
-      const LIP_H = 46;
+      /* Pressure nodes: where the measured envelope dips to a local minimum.
+         These are the points the tube is not "pushing" on — worth marking,
+         since they move when the register changes. */
+      let nd = '';
+      if (level > 0.05) {
+        for (let i = 1; i < 15; i++) {
+          const a = press[i - 1] / pMax, b = press[i] / pMax, c = press[i + 1] / pMax;
+          if (b < a && b <= c && b < 0.35) {
+            const x = xs[i], h = hs[i];
+            nd += `M ${x.toFixed(1)} ${(CY - h).toFixed(1)} L ${x.toFixed(1)} ${(CY + h).toFixed(1)} `;
+          }
+        }
+      }
+      if (nodeRef.current) nodeRef.current.setAttribute('d', nd);
+
+      /* ---- air parcels ----
+         Air in a pipe mostly sloshes: the oscillating displacement is far
+         larger than the net drift that actually leaves the bell. Parcels are
+         therefore moved by the local flow envelope (large at a flow antinode,
+         nil at a node) in quadrature with the pressure, plus a slow drift
+         toward the bell. Watching them makes the node structure legible in a
+         way the envelope alone does not. */
+      const drift = Math.max(0, Number(L.meanFlow) || 0);
+      let ad = '';
+      for (let i = 0; i < N_PARTICLES; i++) {
+        const p = air[i];
+        p.u += dt * (0.045 + 9000 * drift) * (0.6 + 0.8 * p.jitter);
+        if (p.u > 1) p.u -= 1;
+
+        const uLocal = at(flowSeg, p.u) / uMax;
+        // Quadrature with pressure: flow leads where pressure is nil.
+        const swing = 0.055 * uLocal * level * sinP;
+        const ux = Math.max(0, Math.min(1, p.u + swing));
+        const x = BORE_X0 + ux * BORE_SPAN;
+        const h = hAt(ux) - 3;
+        const y = CY + p.lat * h * 0.86;
+        const r = (0.9 + 2.0 * uLocal * level).toFixed(2);
+        ad += `M ${(x - Number(r)).toFixed(1)} ${y.toFixed(1)} a ${r} ${r} 0 1 0 ${(2 * Number(r)).toFixed(2)} 0 a ${r} ${r} 0 1 0 ${(-2 * Number(r)).toFixed(2)} 0 `;
+      }
+      if (airRef.current) {
+        airRef.current.setAttribute('d', ad);
+        airRef.current.setAttribute('opacity', (0.25 + 0.6 * level).toFixed(3));
+      }
+
+      /* ---- lips ----
+         Driven by the captured lip trace, so the drawn gap follows the real
+         waveform — including the flat stretch where the lips are shut, which
+         is where the buzz comes from. */
+      const lw = (L.lipWave && L.lipWave.length) ? L.lipWave : ZERO96;
+      let lwMax = 1e-9;
+      for (let i = 0; i < lw.length; i++) if (lw[i] > lwMax) lwMax = lw[i];
+      const idx = Math.floor(((phase / (2 * Math.PI)) * 3) % 1 * lw.length + lw.length) % lw.length;
+      const lipNow = lw[idx] / lwMax;
+
+      lipSm += (lipNow - lipSm) * (1 - Math.exp(-dt / 0.012));
+      const gap = 1.5 + lipSm * 22 * Math.max(0.25, level);
+      const LIP_H = 40;
       if (lipUpRef.current) {
         lipUpRef.current.setAttribute('y', (CY - LIP_H).toFixed(1));
-        lipUpRef.current.setAttribute('height', Math.max(4, LIP_H - gap / 2).toFixed(1));
+        lipUpRef.current.setAttribute('height', Math.max(3, LIP_H - gap / 2).toFixed(1));
       }
       if (lipDnRef.current) {
         lipDnRef.current.setAttribute('y', (CY + gap / 2).toFixed(1));
-        lipDnRef.current.setAttribute('height', Math.max(4, LIP_H - gap / 2).toFixed(1));
+        lipDnRef.current.setAttribute('height', Math.max(3, LIP_H - gap / 2).toFixed(1));
       }
 
-      /* ---- bell radiation glow ---- */
+      /* Lip waveform inset, so the closed phase is visible as a flat floor. */
+      let lt = '';
+      const LTW = 118, LTH = 30, LTX = 96, LTY = CY + 96;
+      for (let i = 0; i < lw.length; i++) {
+        const x = LTX + (i / (lw.length - 1)) * LTW;
+        const y = LTY - (lw[i] / lwMax) * LTH * Math.max(0.08, level);
+        lt += (i ? ' L ' : 'M ') + x.toFixed(1) + ' ' + y.toFixed(1);
+      }
+      if (lipTraceRef.current) lipTraceRef.current.setAttribute('d', lt);
+
+      /* ---- turbulence at the lips ----
+         Jet noise is made where the air squeezes through the slit, and it
+         stops when the lips shut, so the wisps scale with both. */
+      const tTarget = Math.max(0, Math.min(1, Number(L.turb) || 0)) * lipSm;
+      turbSm += (tTarget - turbSm) * (1 - Math.exp(-dt / 0.05));
+      let tw = '';
+      for (let i = 0; i < 10; i++) {
+        const s = (i * 0.137 + phase * 0.09) % 1;
+        const x = LIP_X + LIP_W + 4 + s * 74;
+        const spread = 3 + s * 20 * turbSm;
+        const yy = CY + Math.sin(i * 2.4 + phase * 0.7) * spread;
+        const len = 5 + 13 * turbSm;
+        tw += `M ${x.toFixed(1)} ${yy.toFixed(1)} l ${len.toFixed(1)} ${(Math.sin(i * 1.7) * 2).toFixed(1)} `;
+      }
+      if (turbRef.current) {
+        turbRef.current.setAttribute('d', tw);
+        turbRef.current.setAttribute('opacity', (0.5 * turbSm).toFixed(3));
+      }
+
+      /* ---- bell radiation ----
+         Wavefronts leaving the open end, one per period, expanding at the
+         speed of sound. */
       const db = (L.out && L.out.length) ? L.out[0] : -90;
       const gt = Math.max(0, Math.min(1, (db + 54) / 54));
       glowSm += (gt - glowSm) * (1 - Math.exp(-dt / 0.12));
       if (bellGlowRef.current) {
-        // Kept inside the viewBox: cx sits at BORE_X1 + 24, so rx must stay
-        // under the remaining margin or the glow clips against the frame edge.
         bellGlowRef.current.setAttribute('rx', (22 + 56 * glowSm).toFixed(1));
         bellGlowRef.current.setAttribute('ry', (hs[15] + 24 + 34 * glowSm).toFixed(1));
         bellGlowRef.current.setAttribute('opacity', (0.10 + 0.5 * glowSm).toFixed(3));
       }
+      for (let i = 0; i < radRefs.length; i++) {
+        const el = radRefs[i].current;
+        if (!el) continue;
+        const s = ((phase / (2 * Math.PI)) + i / radRefs.length) % 1;
+        el.setAttribute('rx', (6 + s * 108).toFixed(1));
+        el.setAttribute('ry', (hs[15] * (0.9 + s * 1.5)).toFixed(1));
+        el.setAttribute('opacity', ((1 - s) * 0.5 * glowSm).toFixed(3));
+      }
 
       /* ---- readouts ---- */
+      const toot = !!L.tootActive;
       if (noteRef.current) noteRef.current.textContent = hzToNote(f0);
       if (hzRef.current) hzRef.current.textContent = f0.toFixed(1) + ' Hz';
       const tf = Number(L.toot) > 0 ? L.toot : f0 * 2.7;
@@ -322,8 +447,8 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
           <path ref={tractRef} d="" fill="url(#tractg)" />
           <path ref={tractEdgeRef} d="" className="iv-tract-edge" fill="none" />
           <line className="iv-glottis" x1={TRACT_X0 - 2} y1={CY - 26} x2={TRACT_X0 - 2} y2={CY + 26} />
-          <text className="iv-cap" x={TRACT_X0 - 4} y={CY + 84}>VOCAL TRACT</text>
-          <text className="iv-cap dim" x={TRACT_X0 - 4} y={CY - 72}>GLOTTIS</text>
+          <text className="iv-cap" x={TRACT_X0 - 4} y={CY + 62}>VOCAL TRACT</text>
+          <text className="iv-cap dim" x={TRACT_X0 - 4} y={CY - 62}>GLOTTIS</text>
         </g>
 
         {/* throat -> lips connector */}
@@ -332,6 +457,11 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         {/* bell radiation */}
         <ellipse ref={bellGlowRef} className="iv-bellglow" cx={BORE_X1 + 24} cy={CY} rx="30" ry="90"
                  fill="url(#bellglow)" filter="url(#soft)" />
+        <g className="iv-radiation">
+          {radRefs.map((r, i) => (
+            <ellipse key={i} ref={r} cx={BORE_X1 + 4} cy={CY} rx="10" ry="40" fill="none" />
+          ))}
+        </g>
 
         {/* instrument body */}
         <path ref={woodRef} d="" fill="url(#wood)" className="iv-wood" />
@@ -339,23 +469,34 @@ function InstrumentView({ bell, setBell, flare, setFlare, texture = 0.3, tractMi
         <path ref={cavityRef} d="" fill="url(#cav)" />
         <path ref={waveRef} d="" fill="url(#wave)" className="iv-wave" />
         <path ref={waveLineRef} d="" className="iv-waveline" fill="none" />
+        <path ref={airRef} d="" className="iv-air" />
+        <path ref={nodeRef} d="" className="iv-node" fill="none" />
         <path ref={innerEdgeRef} d="" className="iv-inner" fill="none" />
+
+        {/* turbulence at the slit */}
+        <path ref={turbRef} d="" className="iv-turb" fill="none" />
 
         {/* lips */}
         <g className="iv-lips">
-          <rect ref={lipUpRef} x={LIP_X} y={CY - 46} width={LIP_W} height="30" rx="9" />
-          <rect ref={lipDnRef} x={LIP_X} y={CY + 16} width={LIP_W} height="30" rx="9" />
-          <text className="iv-cap" x={LIP_X - 2} y={CY + 84}>LIPS</text>
+          <rect ref={lipUpRef} x={LIP_X} y={CY - 40} width={LIP_W} height="28" rx="9" />
+          <rect ref={lipDnRef} x={LIP_X} y={CY + 12} width={LIP_W} height="28" rx="9" />
+          <text className="iv-cap" x={LIP_X - 2} y={CY + 62}>LIPS</text>
+        </g>
+
+        {/* lip motion trace */}
+        <g className="iv-trace">
+          <text className="iv-cap dim" x={96} y={CY + 78}>LIP OPENING</text>
+          <path ref={lipTraceRef} d="" fill="none" />
         </g>
 
         {/* drag affordances — labels appear on hover */}
         <g className="iv-zone" onPointerDown={dragFlare}>
-          <rect x={zx(FLARE_ZONE[0])} y={CY - 150} width={zx(FLARE_ZONE[1]) - zx(FLARE_ZONE[0])} height="300" />
-          <text x={(zx(FLARE_ZONE[0]) + zx(FLARE_ZONE[1])) / 2} y={CY - 118}>FLARE — DRAG</text>
+          <rect x={zx(FLARE_ZONE[0])} y={CY - 120} width={zx(FLARE_ZONE[1]) - zx(FLARE_ZONE[0])} height="240" />
+          <text x={(zx(FLARE_ZONE[0]) + zx(FLARE_ZONE[1])) / 2} y={CY - 96}>FLARE — DRAG</text>
         </g>
         <g className="iv-zone" onPointerDown={dragBell}>
-          <rect x={zx(BELL_ZONE[0])} y={CY - 170} width={BORE_X1 + 30 - zx(BELL_ZONE[0])} height="340" />
-          <text x={(zx(BELL_ZONE[0]) + BORE_X1) / 2 + 10} y={CY - 140}>BELL — DRAG</text>
+          <rect x={zx(BELL_ZONE[0])} y={CY - 130} width={BORE_X1 + 30 - zx(BELL_ZONE[0])} height="260" />
+          <text x={(zx(BELL_ZONE[0]) + BORE_X1) / 2 + 10} y={CY - 110}>BELL — DRAG</text>
         </g>
       </svg>
 

@@ -186,6 +186,26 @@ html, body {
 .iv-inner { stroke: rgba(255, 189, 122, 0.32); stroke-width: 1.2; }
 .iv-wave { filter: drop-shadow(0 0 9px rgba(255, 140, 50, 0.45)); }
 .iv-waveline { stroke: #ffd9a6; stroke-width: 1.4; }
+
+/* Air parcels sloshing in the bore. Kept pale and small: they carry the
+   node structure by how far they swing, not by being decorative. */
+.iv-air { fill: rgba(255, 236, 208, 0.85); }
+
+/* Pressure nodes — the cross-sections the standing wave is not pushing on. */
+.iv-node {
+  stroke: rgba(120, 220, 255, 0.55);
+  stroke-width: 1.2;
+  stroke-dasharray: 3 4;
+}
+
+/* Jet noise at the lip slit. */
+.iv-turb { stroke: rgba(210, 235, 255, 0.75); stroke-width: 1.1; stroke-linecap: round; }
+
+/* Wavefronts leaving the bell. */
+.iv-radiation ellipse { stroke: rgba(255, 178, 96, 0.8); stroke-width: 1.4; }
+
+/* Lip-opening oscilloscope. */
+.iv-trace path { stroke: #ffb765; stroke-width: 1.3; stroke-linejoin: round; }
 .iv-tract-edge { stroke: rgba(240, 190, 210, 0.42); stroke-width: 1.2; }
 .iv-glottis { stroke: rgba(240, 190, 210, 0.5); stroke-width: 2.5; stroke-linecap: round; }
 .iv-neck { fill: rgba(160, 96, 116, 0.28); stroke: rgba(240, 190, 210, 0.22); stroke-width: 1; }

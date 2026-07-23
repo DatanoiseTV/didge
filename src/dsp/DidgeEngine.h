@@ -164,6 +164,17 @@ public:
     float vizTractArea (int i) const { return vTract[i].load (std::memory_order_relaxed); }
     float vizBoreRadius (int i) const { return vBore[i].load (std::memory_order_relaxed); }
 
+    // Standing wave and airflow along the bore, straight from the waveguide.
+    float vizBorePressure (int i) const { return vPress[i].load (std::memory_order_relaxed); }
+    float vizBoreFlow (int i)     const { return vFlowSeg[i].load (std::memory_order_relaxed); }
+    float vizMeanFlow()           const { return vMeanFlow.load (std::memory_order_relaxed); }
+    float vizTurbulence()         const { return vTurb.load (std::memory_order_relaxed); }
+
+    // One cycle-ish of the lip opening, decimated, so the UI can draw the
+    // actual buzz waveform including the closed phase rather than a sine.
+    static constexpr int kLipTraceLen = 96;
+    float vizLipTrace (int i) const { return lipTrace[i].load (std::memory_order_relaxed); }
+
     static constexpr int kMaxHeld = 12;
 
 private:
@@ -224,6 +235,16 @@ private:
     std::atomic<bool>  vTootActive { false };
     std::atomic<float> vTract[VocalTract::kSections];
     std::atomic<float> vBore[Bore::kSegments];
+    std::atomic<float> vPress[Bore::kSegments];
+    std::atomic<float> vFlowSeg[Bore::kSegments];
+    std::atomic<float> vMeanFlow { 0.0f }, vTurb { 0.0f };
+
+    // Lip-trace capture: decimated so the stored window spans a few periods
+    // of the drone whatever the note.
+    std::atomic<float> lipTrace[kLipTraceLen];
+    int   lipTraceIdx = 0;
+    int   lipDecim = 0, lipDecimCount = 0;
+    float lipTracePeak = 0.0f;
 };
 
 } // namespace didge

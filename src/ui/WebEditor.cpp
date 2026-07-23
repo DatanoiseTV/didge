@@ -443,6 +443,20 @@ void WebEditor::emitLevels()
     for (int i = 0; i < didge::VocalTract::kSections; ++i)
         tract.add (juce::var (engine.vizTractArea (i)));
 
+    // Standing wave and airflow along the bore, plus the lip motion itself.
+    // The drawing is built from these rather than from an assumed mode shape,
+    // so the nodes sit where the waveguide actually puts them.
+    juce::Array<juce::var> press, flowSeg;
+    for (int i = 0; i < didge::Bore::kSegments; ++i)
+    {
+        press.add (juce::var (engine.vizBorePressure (i)));
+        flowSeg.add (juce::var (engine.vizBoreFlow (i)));
+    }
+
+    juce::Array<juce::var> lipWave;
+    for (int i = 0; i < didge::DidgeEngine::kLipTraceLen; ++i)
+        lipWave.add (juce::var (engine.vizLipTrace (i)));
+
     juce::DynamicObject::Ptr root = new juce::DynamicObject();
     root->setProperty ("out",        juce::var (outArr));
     root->setProperty ("pressure",   engine.vizPressure());
@@ -454,6 +468,11 @@ void WebEditor::emitLevels()
     root->setProperty ("playing",    engine.anyNoteHeld());
     root->setProperty ("bore",       juce::var (bore));
     root->setProperty ("tract",      juce::var (tract));
+    root->setProperty ("press",      juce::var (press));
+    root->setProperty ("flowSeg",    juce::var (flowSeg));
+    root->setProperty ("lipWave",    juce::var (lipWave));
+    root->setProperty ("meanFlow",   engine.vizMeanFlow());
+    root->setProperty ("turb",       engine.vizTurbulence());
 
     webView->emitEventIfBrowserIsVisible (juce::Identifier { "levels" }, juce::var (root.get()));
 }

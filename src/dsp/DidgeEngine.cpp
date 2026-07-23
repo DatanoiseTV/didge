@@ -164,6 +164,9 @@ void DidgeEngine::prepare (double sampleRate, int)
     pitchTrim.prepare (sampleRate);
     for (auto& a : vTract) a.store (2.0f, std::memory_order_relaxed);
     for (auto& a : vBore)  a.store (0.02f, std::memory_order_relaxed);
+    for (auto& a : vPress) a.store (0.0f, std::memory_order_relaxed);
+    for (auto& a : vFlowSeg) a.store (0.0f, std::memory_order_relaxed);
+    lipDecim = std::max (1, static_cast<int> (3.0f * fs / (73.42f * kLipTraceLen)));
     everTuned = false;
     reset();
 }
@@ -183,6 +186,9 @@ void DidgeEngine::reset()
     bpZ1 = bpZ2 = breathLp = 0.0f;
     dcX = dcY = tiltPrev = 0.0f;
     lipDrop = lipOpenGate = 0.0f;
+    lipTraceIdx = lipDecimCount = 0;
+    lipTracePeak = 0.0f;
+    for (auto& v : lipTrace) v.store (0.0f, std::memory_order_relaxed);
 }
 
 LipLoad DidgeEngine::buildLipLoad (const EngineParams& p) const
@@ -490,6 +496,16 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         pitchTrim.observe (lipOpen, droneTargetHz,
                            learnable && pressureEnv > 0.5f * pTargetOn && transientEnv < 0.05f);
 
+        // Capture the lip motion for display, decimated so the stored window
+        // covers about three periods of whatever note is sounding.
+        if (++lipDecimCount >= lipDecim)
+        {
+            lipDecimCount = 0;
+            lipTrace[lipTraceIdx].store (lipOpen, std::memory_order_relaxed);
+            lipTraceIdx = (lipTraceIdx + 1) % kLipTraceLen;
+            lipTracePeak = std::max (lipTracePeak, lipOpen);
+        }
+
         // --- output chain ----------------------------------------------------
         const float dcIn = radiated;
         float y = dcIn - dcX + dcR * dcY;
@@ -524,6 +540,18 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     };
     bump (peakL, pkL);
     bump (peakR, pkR);
+    // Three periods of the drone spread across the trace buffer.
+    lipDecim = std::max (1, static_cast<int> (3.0f * fs / (droneTargetHz * kLipTraceLen)));
+
+    for (int i = 0; i < Bore::kSegments; ++i)
+    {
+        vPress[i].store (bore.segmentPressure (i), std::memory_order_relaxed);
+        vFlowSeg[i].store (bore.segmentFlow (i), std::memory_order_relaxed);
+    }
+    vMeanFlow.store (bore.meanFlow(), std::memory_order_relaxed);
+    vTurb.store (std::min (1.5f, p.breath + 0.9f * transientEnv)
+                 * (pressureEnv / kMaxLungPressure), std::memory_order_relaxed);
+
     const float inv = 1.0f / static_cast<float> (std::max (1, numSamples));
     vPressure.store (pressureEnv / kMaxLungPressure, std::memory_order_relaxed);
     vLipOpen.store (lipOpenAcc * inv, std::memory_order_relaxed);
