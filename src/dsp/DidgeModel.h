@@ -84,7 +84,44 @@ private:
 // from another. A cylinder resonates at odd multiples only (1:3:5), a cone at
 // every multiple (1:2:3) like a saxophone, and a horn that flares late behaves
 // like brass. The natural profile is the irregular termite-hollowed tube.
-enum class BoreProfile { natural = 0, cylinder, cone, flared, horn };
+// Brass and horn bores differ mainly in two numbers: how much of the length
+// runs parallel before the bell starts, and how sharply the bell then opens.
+// A trombone is about half cylindrical, a trumpet a third, a flugelhorn barely
+// any; the bell itself opens slowly at first and then very fast, which a power
+// law with a large exponent reproduces well enough for a playable model. Bore
+// width matters too — a narrow tube has a high characteristic impedance and
+// couples hard to the lips, which is why a trumpet is brighter and more
+// resistant than a tuba of the same sounding length.
+enum class BoreProfile
+{
+    natural = 0, cylinder, cone, flared, horn,
+    trumpet, trombone, flugelhorn, frenchHorn, tuba, alphorn, contrabass
+};
+
+// cylFrac: parallel fraction before the bell. flarePow: bell exponent, larger
+// opens later and faster. mouthMul / bellMul scale the two ends, so the family
+// covers small bright instruments through to very large ones.
+struct BoreGeometry { float cylFrac, flarePow, mouthMul, bellMul; };
+
+inline BoreGeometry boreGeometryFor (BoreProfile p, float flare)
+{
+    switch (p)
+    {
+        case BoreProfile::cylinder:   return { 1.00f, 1.0f,  1.00f, 0.06f };
+        case BoreProfile::cone:       return { 0.00f, 1.0f,  1.00f, 1.00f };
+        case BoreProfile::flared:     return { 0.00f, 0.55f + 0.5f * flare, 1.00f, 1.00f };
+        case BoreProfile::horn:       return { 0.25f + 0.30f * (1.0f - flare), 1.6f, 1.00f, 1.00f };
+        case BoreProfile::trumpet:    return { 0.35f, 4.0f,  0.62f, 0.85f };
+        case BoreProfile::trombone:   return { 0.52f, 3.6f,  0.72f, 1.05f };
+        case BoreProfile::flugelhorn: return { 0.12f, 2.2f,  0.78f, 1.00f };
+        case BoreProfile::frenchHorn: return { 0.18f, 3.2f,  0.58f, 1.25f };
+        case BoreProfile::tuba:       return { 0.10f, 2.4f,  1.30f, 1.45f };
+        case BoreProfile::alphorn:    return { 0.05f, 1.15f, 1.10f, 1.20f };
+        case BoreProfile::contrabass: return { 0.08f, 2.0f,  1.55f, 1.60f };
+        case BoreProfile::natural:
+        default:                      return { 0.00f, 1.0f + 3.0f * flare, 1.00f, 1.00f };
+    }
+}
 
 // Wall material. Real wall losses grow with frequency (the viscous and thermal
 // boundary layer scales with the square root of it) and rough, porous surfaces
@@ -226,43 +263,18 @@ public:
         shape = s;
         const float rBell = kMouthRadius + (0.080f - 0.018f) * s.bell;
         const auto prof = static_cast<BoreProfile> (s.profile);
+        const auto geo = boreGeometryFor (prof, s.flare);
+        const float rThroat = kMouthRadius * geo.mouthMul;
+        const float rEnd = std::max (rThroat * 1.02f, rBell * geo.bellMul);
 
         for (int i = 0; i < kSegments; ++i)
         {
             const float t = static_cast<float> (i) / static_cast<float> (kSegments - 1);
-            float r;
-            switch (prof)
-            {
-                case BoreProfile::cylinder:
-                    // Parallel walls: odd harmonics only, hollow and clarinet-like.
-                    r = kMouthRadius + (rBell - kMouthRadius) * 0.06f;
-                    break;
-                case BoreProfile::cone:
-                    // Straight taper. A complete cone resonates at every
-                    // multiple of its fundamental, which is why this reads as
-                    // reedy and saxophone-like rather than as a drone pipe.
-                    r = kMouthRadius + (rBell - kMouthRadius) * t;
-                    break;
-                case BoreProfile::flared:
-                    // Exponential horn: gain rising smoothly with frequency.
-                    r = kMouthRadius * std::pow (rBell / kMouthRadius,
-                                                 std::pow (t, 0.65f + 0.7f * s.flare));
-                    break;
-                case BoreProfile::horn:
-                {
-                    // Brass layout: a long cylindrical run, then a bell that
-                    // opens fast near the very end.
-                    const float knee = 0.25f + 0.30f * (1.0f - s.flare);
-                    const float u = t <= knee ? 0.0f : (t - knee) / std::max (0.05f, 1.0f - knee);
-                    r = kMouthRadius + (rBell - kMouthRadius) * std::pow (u, 1.6f);
-                    break;
-                }
-                case BoreProfile::natural:
-                default:
-                    r = kMouthRadius + (rBell - kMouthRadius)
-                                     * std::pow (t, 1.0f + 3.0f * s.flare);
-                    break;
-            }
+            // Parallel lead pipe, then the bell opens over what is left.
+            const float u = geo.cylFrac >= 0.999f
+                          ? 0.0f
+                          : std::max (0.0f, (t - geo.cylFrac)) / (1.0f - geo.cylFrac);
+            float r = rThroat + (rEnd - rThroat) * std::pow (u, geo.flarePow);
             r *= 1.0f + s.texture * 0.22f * wobbleTable (i);
             radius[i] = std::max (0.006f, r);
             area[i]   = 3.14159265f * radius[i] * radius[i];

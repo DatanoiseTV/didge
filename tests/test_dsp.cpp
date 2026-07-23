@@ -503,7 +503,7 @@ static void testBoreProfiles()
            cylinder);
 
     // Every profile must still speak and stay finite.
-    for (int prof = 0; prof < 5; ++prof)
+    for (int prof = 0; prof < 12; ++prof)
     {
         EngineParams p;
         p.shape.profile = prof;

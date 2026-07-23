@@ -50,7 +50,21 @@
   /* Short forms for the segmented control — the host sees the full names
      from the parameter itself; these only have to fit the panel. */
   const VEL_TARGETS = ['Off', 'Breath', 'Br+Atk', 'Emb', 'Bright'];
-  const BORE_PROFILES = ['Natural', 'Cylinder', 'Cone', 'Flared', 'Horn'];
+  const BORE_PROFILES = ['Natural', 'Cylinder', 'Cone', 'Flared', 'Horn',
+                         'Trumpet', 'Trombone', 'Flugelhorn', 'French Horn', 'Tuba',
+                         'Alphorn', 'Contrabass'];
+  /* Mirrors boreGeometryFor() in dsp/DidgeModel.h: parallel fraction, bell
+     exponent, and the two end scalings. Only used to draw the cutaway in a
+     plain browser; the plugin sends the engine's real radii. */
+  const BORE_GEOM = {
+    0:  [0.00, null, 1.00, 1.00], 1: [1.00, 1.0, 1.00, 0.06],
+    2:  [0.00, 1.0,  1.00, 1.00], 3: [0.00, null, 1.00, 1.00],
+    4:  [null, 1.6,  1.00, 1.00],
+    5:  [0.35, 4.0,  0.62, 0.85], 6: [0.52, 3.6, 0.72, 1.05],
+    7:  [0.12, 2.2,  0.78, 1.00], 8: [0.18, 3.2, 0.58, 1.25],
+    9:  [0.10, 2.4,  1.30, 1.45], 10: [0.05, 1.15, 1.10, 1.20],
+    11: [0.08, 2.0,  1.55, 1.60],
+  };
   const MATERIALS = ['Wood', 'Bamboo', 'Brass', 'Steel', 'Glass'];
 
   const pct  = (n) => Math.round(n * 100) + '%';
@@ -135,20 +149,18 @@
       const rMouth = 0.0145;
       const rEnd = 0.030 + 0.050 * bell;
       const prof = global.Juce.getComboBoxState('boreProfile').getChoiceIndex();
-      const exp = 3.4 - 2.7 * flare;               // low flare = long cylinder, late bell
+      const geo = BORE_GEOM[prof] || BORE_GEOM[0];
+      const cylFrac = geo[0] !== null ? geo[0] : 0.25 + 0.30 * (1 - flare);
+      const flarePow = geo[1] !== null ? geo[1]
+                     : (prof === 3 ? 0.55 + 0.5 * flare : 1 + 3 * flare);
+      const rThroat = rMouth * geo[2];
+      const rTip = Math.max(rThroat * 1.02, rEnd * geo[3]);
       const bore = [];
       for (let i = 0; i < 16; i++) {
-        const u = i / 15;
-        let r;
-        if (prof === 1) r = rMouth + (rEnd - rMouth) * 0.06;               // cylinder
-        else if (prof === 2) r = rMouth + (rEnd - rMouth) * u;             // cone
-        else if (prof === 3) r = rMouth * Math.pow(rEnd / rMouth, Math.pow(u, 0.65 + 0.7 * flare));
-        else if (prof === 4) {                                             // horn
-          const knee = 0.25 + 0.30 * (1 - flare);
-          const t = u <= knee ? 0 : (u - knee) / Math.max(0.05, 1 - knee);
-          r = rMouth + (rEnd - rMouth) * Math.pow(t, 1.6);
-        } else r = rMouth + (rEnd - rMouth) * Math.pow(u, exp);            // natural
-        r *= 1 + texture * 0.055 * u * Math.sin(u * 21 + 1.3);   // irregularity grows toward the bell
+        const u0 = i / 15;
+        const u = cylFrac >= 0.999 ? 0 : Math.max(0, u0 - cylFrac) / (1 - cylFrac);
+        let r = rThroat + (rTip - rThroat) * Math.pow(u, flarePow);
+        r *= 1 + texture * 0.055 * u0 * Math.sin(u0 * 21 + 1.3);  // irregularity grows toward the bell
         bore.push(r);
       }
 

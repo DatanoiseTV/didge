@@ -65,7 +65,9 @@ namespace didge::ids
     // Order must match didge::BoreProfile / didge::BoreMaterial in
     // dsp/DidgeModel.h.
     inline const juce::StringArray boreProfileNames {
-        "Natural", "Cylinder", "Cone", "Flared", "Horn"
+        "Natural", "Cylinder", "Cone", "Flared", "Horn",
+        "Trumpet", "Trombone", "Flugelhorn", "French Horn", "Tuba",
+        "Alphorn", "Contrabass"
     };
     inline const juce::StringArray materialNames {
         "Wood", "Bamboo", "Brass", "Steel", "Glass"

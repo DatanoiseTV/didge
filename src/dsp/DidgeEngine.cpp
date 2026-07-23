@@ -34,6 +34,28 @@ namespace
 #endif
     constexpr float kNoiseScale = DIDGE_NOISE;
 
+    // Level trim per bore profile, in dB, measured on a held D2 and referred
+    // to the natural bore. The profiles genuinely differ in how strongly the
+    // lip valve drives them -- a narrow, half-cylindrical trombone bore asked
+    // to sound a low drone is a much weaker regime than a wide conical one --
+    // and an 18 dB jump when switching would make the control unusable. The
+    // boost is capped, so the weakest profiles stay a little quieter rather
+    // than having their noise floor lifted with them.
+    constexpr float kProfileTrimDb[] = {
+        0.0f,   // natural (reference)
+       -0.4f,   // cylinder
+        2.9f,   // cone
+        4.8f,   // flared
+        3.8f,   // horn
+       -3.5f,   // trumpet
+        9.0f,   // trombone
+        8.5f,   // flugelhorn
+        8.5f,   // french horn
+        3.1f,   // tuba
+        1.0f,   // alphorn
+        5.1f,   // contrabass
+    };
+
     // How far the vocal tract may exceed the bore impedance. Measured values
     // (Tarnopolsky 2005; Smith et al. JASA 121, 547) put a didgeridoo tract
     // peak near 12 MPa.s/m^3 against a bore around 0.7, so the tract really
@@ -396,6 +418,10 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     const float growlF   = droneTargetHz * std::pow (2.0f, p.growlSemis / 12.0f);
     const float growlInc = growlF / fs;
 
+    const int profIdx = std::max (0, std::min ((int) std::size (kProfileTrimDb) - 1,
+                                               p.shape.profile));
+    const float profileTrim = std::pow (10.0f, kProfileTrimDb[profIdx] / 20.0f);
+
     const float zBore = bore.mouthImpedance();
     const float dcR = 1.0f - 6.2831853f * 18.0f / fs;
     const float tiltGain = 0.5f * (fs / 48000.0f);
@@ -573,7 +599,7 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         const float tilt = y + tiltGain * (y - tiltPrev);
         tiltPrev = y;
 
-        float mono = std::tanh (tilt * kOutputScale);
+        float mono = std::tanh (tilt * kOutputScale * profileTrim);
 
         float ambL, ambR;
         ambience.process (mono * 0.7f, ambL, ambR);

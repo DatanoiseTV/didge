@@ -43,10 +43,13 @@ All notable changes to Didge are documented here. The format follows
 - Velocity routing to breath, breath plus attack, embouchure or brightness --
   the destinations that follow from blowing harder -- with an amount control
   and an explicit off.
-- Bore profile: natural, cylinder, cone, flared or horn. This sets the
-  resonance series, so it changes the instrument far more than any single
-  knob: a cylinder resonates at odd multiples only, a cone at every multiple
-  like a saxophone, and the horn behaves like brass.
+- Bore profile: twelve of them, from the natural termite-hollowed tube through
+  cylinder, cone and horn to trumpet, trombone, flugelhorn, french horn, tuba,
+  alphorn and contrabass. Each is built from the parallel fraction before the
+  bell, the bell's flare exponent and the bore width at both ends. This sets
+  the resonance series, so it changes the instrument far more than any single
+  knob, and profiles carry a level trim so switching does not jump by the
+  18 dB they otherwise differ by.
 - Wall material: wood, bamboo, brass, steel or glass, specified by the loss
   it produces over a full round trip and solved back into the per-traversal
   filter. Overblowing now also takes more breath, as it does in life, so the

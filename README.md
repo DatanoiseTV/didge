@@ -59,11 +59,29 @@ the result of simulating air:
 | Velocity | Routable to breath, attack, embouchure or brightness |
 
 **Bore profile** is the control with the largest effect, because it sets the
-resonance series rather than the tone colour. *Natural* is the irregular
-termite-hollowed tube. *Cylinder* resonates at odd multiples only and sounds
-hollow and clarinet-like. *Cone* supports the complete harmonic series, which
-is why it reads as reedy and saxophone-like. *Flared* and *Horn* open out late
-and behave like brass. **Material** sets how much the wall loses and how
+resonance series rather than the tone colour. Twelve profiles are built from
+the two numbers that actually separate wind instruments — how much of the
+length runs parallel before the bell, and how fast the bell then opens —
+together with the bore width at each end:
+
+| Profile | Parallel run | Character |
+| --- | --- | --- |
+| Natural | none | Irregular termite-hollowed tube |
+| Cylinder | all | Odd harmonics only, hollow and clarinet-like |
+| Cone | none | Complete harmonic series, reedy and saxophone-like |
+| Flared / Horn | none / late | Smoothly opening horn |
+| Trumpet | a third | Narrow and bright; harmonics rise above the fundamental |
+| Trombone | half | The most cylindrical of the brass |
+| Flugelhorn | little | Conical and mellow |
+| French Horn | little | Narrow throat, wide late bell |
+| Tuba / Contrabass | little | Very wide bore and bell, large and dark |
+| Alphorn | almost none | Long gentle cone |
+
+Measured on a held D2, the trumpet's spectral centroid is around 700 Hz against
+the natural bore's 195 Hz, and the cylinder's second harmonic sits 12 dB under
+its fundamental where the natural bore's sits 7 dB above. Profiles carry a
+level trim so switching between them does not jump by the 18 dB they otherwise
+differ by. **Material** sets how much the wall loses and how
 sharply that loss rises with frequency: wood is dark and short, metal brighter
 and longer-ringing. **Decay**, off by default, lets the breath run out under a
 held note for short struck sounds.
