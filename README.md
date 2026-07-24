@@ -241,16 +241,19 @@ rate.
   fitting a one-pole to it at a reference frequency. Until then the damping
   control is held below the edge rather than being allowed to switch the
   instrument off.
-- **Vocal shaping is deeper than it was, and no longer limited by what this
-  note used to claim.** It said the model became unstable above a tract-to-bore
-  impedance ratio of about 2.5 and was capped there. Measured, that is not so:
-  swept to 18 the output stays finite and its peak does not move, and the cap
-  stops binding at all above 5, because the tract's own impedance never exceeds
-  the bore's by more than about that. The cap now sits at 5, where a vowel
-  change carves the spectrum consistently by 10 to 22 dB across the harmonic
-  series instead of moving some harmonics and lifting others. Measured tract
-  peaks in real players are around 18 times the bore, so there is still headroom
-  to find -- but it is in the tract model, not in a stability limit.
+- **Vocal shaping is deeper than it was, and its real ceiling is now known.**
+  The old note said the model became unstable above a tract-to-bore impedance
+  ratio of 2.5 and was capped there. That is not the limit; the model stays
+  finite far higher. But there is a ceiling: measured across the whole vowel and
+  pressure grid, the shaping depth saturates at a ratio of 3.5 -- about 17 dB of
+  swing between oo and ee -- and nothing above it deepens the vowel further,
+  while past about 4 the tract begins choking the lips into silence at its
+  extreme. The cap sits at 3.5, the full shaping the model can give with margin
+  below the point where the drone dies. Measured tract peaks in real players are
+  around 18 times the bore, so there is still headroom in principle, but reaching
+  it needs the tract's loading moved into its returning wave rather than applied
+  instantaneously -- the same change that would let lip Q rise.
+
 - **Cane reeds let the tract take the pitch at extreme settings.** With the
   voice control at maximum and the vowel at either extreme, a single reed stops
   tracking the keyboard and sits on a tract resonance. That is a real mechanism

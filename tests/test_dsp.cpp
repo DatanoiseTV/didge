@@ -853,6 +853,51 @@ static void testWaveField()
 // pressure only helps as its square root. The control is held below that edge
 // now, so every position sounds.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// The vocal tract shapes the drone; it must never switch it off. A real
+// player's tongue colours the sound and cannot silence the instrument, so no
+// combination of the voice, vowel and mouth controls may kill the drone. An
+// earlier pass raised the tract impedance limit too far and created exactly
+// that: full voice with a closed "oo" dropped the output thirty decibels, and
+// only adding growl -- which brings its own oscillation -- restarted it. This
+// scans the corner of the control space where that happened.
+// ---------------------------------------------------------------------------
+static void testTractNeverChokesTheDrone()
+{
+    // A reference level with the voice out of the way, to compare against.
+    float ref = 0.0f;
+    {
+        EngineParams p;
+        p.tractMix = 0.0f;
+        p.pressure = 0.85f;
+        p.humanize = 0.0f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        ref = rmsOf (hold (e, p, 38, 2.5f), 1.8f, 2.5f);
+    }
+
+    for (float mix : { 0.7f, 0.85f, 1.0f })
+        for (float vx : { 0.0f, 0.1f, 0.25f, 0.5f, 1.0f })
+            for (float vy : { 0.1f, 0.2f, 0.5f })
+            {
+                EngineParams p;
+                p.tractMix = mix;
+                p.vowelX = vx;
+                p.vowelY = vy;
+                p.pressure = 0.85f;
+                p.growl = 0.0f;         // growl would mask the fault
+                p.humanize = 0.0f;
+                DidgeEngine e;
+                e.prepare (kFs, 256);
+                const float rms = rmsOf (hold (e, p, 38, 2.5f), 1.8f, 2.5f);
+                CHECK (rms > 0.2f * ref,
+                       "the tract choked the drone at voice %.2f vowel %.2f/%.2f: "
+                       "%.5f against %.5f with the voice off (%.1f dB down)",
+                       mix, vx, vy, rms, ref,
+                       20.0f * std::log10 (std::max (1.0e-9f, rms / ref)));
+            }
+}
+
 static void testLipDampingAlwaysSpeaks()
 {
     float loud = 0.0f;
@@ -1034,6 +1079,7 @@ int main()
     testBoreDiameter();
     testWaveField();
     testLipDampingAlwaysSpeaks();
+    testTractNeverChokesTheDrone();
     testMaterials();
     testStability();
     testSampleRates();

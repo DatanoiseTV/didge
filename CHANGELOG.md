@@ -86,10 +86,12 @@ All notable changes to Didge are documented here. The format follows
 - Bore diameter, scaling the whole tube from half to double. Measured across
   the range the spectral centroid runs 490 Hz to 160 Hz: narrow is the bright
   one, because the impedance rise outweighs the extra wall loss.
-- Vocal tract coupling raised to where it stops binding. The cap sat at 2.5
-  times the bore impedance on the belief that the model went unstable above it;
-  measured, it does not, and the cap is inert above 5. A vowel change now
-  carves the harmonic series by 10 to 22 dB consistently.
+- Vocal tract coupling deepened from a cap of 2.5 to 3.5 times the bore
+  impedance, where the vowel shaping saturates -- a vowel change now carves the
+  harmonic series by up to 17 dB. An interim value of 5 was too high and let the
+  tract choke the drone into near-silence at full voice with a closed vowel,
+  recoverable only by adding growl; that dead zone is gone and a test scans the
+  control corner for it.
 - Lip damping is held below the point where an outward-striking valve stops
   oscillating. Past it the instrument fell thirty decibels with the pitch
   running away, and the top two thirds of the control ran straight through it.

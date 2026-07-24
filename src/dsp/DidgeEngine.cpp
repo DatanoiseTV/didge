@@ -62,16 +62,22 @@ namespace
     // does dominate by more than an order of magnitude in the formant band.
     //
     // This sat at 2.5 on the belief that the model went unstable above it.
-    // Measured, it does not: swept to 18 the output stays finite and its peak
-    // does not move, and the cap stops binding at all above 5 because the
-    // tract's own impedance never exceeds the bore's by more than about that.
-    // The old value was costing real vocal shaping for nothing -- at 2.5 a
-    // vowel change moved some harmonics and lifted others, where at 5 it
-    // carves the spectrum consistently, 10 to 22 dB across the series, which
-    // is the behaviour the instrument is known for. Raised to where it stops
-    // binding rather than to the measured 18, since beyond that it is inert.
+    // Measured, it does not, and 2.5 was costing real vocal shaping -- at that
+    // value a vowel change moved some harmonics and lifted others, where deeper
+    // it carves the spectrum consistently across the series.
+    //
+    // But there is a real ceiling, just not the one the old comment named, and
+    // an earlier pass here overshot it to 5. Measured across the whole vowel
+    // and pressure grid, the shaping depth saturates at 3.5 -- 17 dB of swing
+    // between oo and ee, and no more above it -- while past about 4 the tract
+    // starts choking the lips into silence at its extreme: full voice with a
+    // closed oo left the drone thirty decibels down and only a growl, which
+    // adds its own oscillation, brought it back. That is unphysical; a real
+    // tongue shapes the sound and cannot switch the instrument off. So the cap
+    // sits at 3.5: the full shaping the model can give, with margin below the
+    // point where it kills the drone. A test scans the grid for dead cells.
 #ifndef DIDGE_ZLIM
-#define DIDGE_ZLIM 5.0f
+#define DIDGE_ZLIM 3.5f
 #endif
     constexpr float kTractZLimit = DIDGE_ZLIM;
 
