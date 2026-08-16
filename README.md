@@ -192,6 +192,23 @@ are unsigned, so the first launch needs one confirmation step; the archive
 contains an INSTALL note with the exact commands. Building from source avoids
 that entirely.
 
+## Presets
+
+The factory bank spans the instruments the model plays in tune and
+convincingly, each rendered and measured rather than dialled by ear:
+
+- **Didgeridoo** -- Deep Drone, Yidaki, Circular Breath, Rhythm Machine,
+  Growl Beast (natural bore, lips).
+- **Brass** -- Trumpet, Trombone, French Horn, Tuba, Flugelhorn, Alphorn
+  (lips on the brass profiles, tuned to play in tune on the first note).
+- **Reeds** -- Clarinet, Bass Clarinet (single reed on a cylinder, the
+  odd-harmonic woodwind), Reed Organ (free reed).
+- **Flutes** -- Pan Flute, Recorder (the air jet across a stopped pipe).
+
+A cane reed on a conical bore -- a saxophone or oboe -- jumps registers in
+this model and is deliberately not in the bank; the double reed and the
+brass cover the reedy and conical voices instead.
+
 ## Building
 
 ```sh

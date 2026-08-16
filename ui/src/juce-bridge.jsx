@@ -334,9 +334,10 @@
       })()),
       getNativeFunction: (name) => {
         if (name === 'listFactoryPresets')
-          return () => Promise.resolve(['Deep Drone', 'Yidaki', 'Termite Bore', 'Circular Breath',
-                                        'Rhythm Machine', 'Growl Beast', 'Wobble Bass', 'High Mago',
-                                        'Wide Bell', 'Dry & Close']);
+          return () => Promise.resolve(['Deep Drone', 'Yidaki', 'Circular Breath', 'Rhythm Machine',
+                                        'Growl Beast', 'Trumpet', 'Trombone', 'French Horn', 'Tuba',
+                                        'Flugelhorn', 'Alphorn', 'Clarinet', 'Bass Clarinet',
+                                        'Reed Organ', 'Pan Flute', 'Recorder']);
         if (name === 'listUserPresets') return () => Promise.resolve([]);
         return () => Promise.resolve();
       },

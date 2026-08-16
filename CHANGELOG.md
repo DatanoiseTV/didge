@@ -95,7 +95,9 @@ All notable changes to Didge are documented here. The format follows
 - Lip damping is held below the point where an outward-striking valve stops
   oscillating. Past it the instrument fell thirty decibels with the pitch
   running away, and the top two thirds of the control ran straight through it.
-- Ten factory presets, XML user presets.
+- Sixteen factory presets spanning the didgeridoo, brass, reed and flute
+  families -- each rendered and measured for pitch, level and character
+  rather than set by ear. XML user presets.
 - Acoustic test suite that renders audio and measures pitch, spectrum, vowel
   response, growl sidebands, overblowing, silence, numerical stability and
   sample-rate independence.

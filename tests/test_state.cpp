@@ -178,6 +178,48 @@ static void testParameterOrderIsStable()
                << "\". Append new parameters at the end of the layout instead.");
 }
 
+// Every factory preset must speak and land near the note asked for on a
+// representative note for its family. The bank spans instruments beyond the
+// didgeridoo now -- brass, reeds, flutes -- each on a profile/exciter pair that
+// was measured to work; this guards the whole bank against a silent or badly
+// out-of-tune patch shipping. Tolerance is generous: the per-note learner
+// refines pitch in use, and a couple of brass profiles sit near a mode split at
+// specific notes.
+static void testFactoryPresetsPlayInTune()
+{
+    // One representative MIDI note per preset, in bank order.
+    static const int notes[] = { 38,40,38,40,38, 58,46,53,34,53,41, 50,38,50, 57,62 };
+
+    DidgeAudioProcessor probe;
+    const auto names = probe.getPresetManager().getFactoryNames();
+    CHECK (names.size() >= 12, "expected the full reworked bank, saw " << names.size());
+
+    for (int i = 0; i < names.size(); ++i)
+    {
+        DidgeAudioProcessor p;
+        p.getPresetManager().loadFactory (i);
+        p.setPlayConfigDetails (0, 2, 48000.0, 512);
+        p.prepareToPlay (48000.0, 512);
+
+        const int note = i < (int) (sizeof (notes) / sizeof (notes[0])) ? notes[i] : 45;
+        juce::AudioBuffer<float> buf (2, 512);
+        std::vector<float> tail;
+        for (int b = 0; b < 280; ++b)
+        {
+            juce::MidiBuffer midi;
+            if (b == 0) midi.addEvent (juce::MidiMessage::noteOn (1, note, 0.85f), 0);
+            buf.clear();
+            p.processBlock (buf, midi);
+            if (b > 150) for (int s = 0; s < 512; ++s) tail.push_back (buf.getSample (0, s));
+        }
+        double e = 0.0; for (float v : tail) e += (double) v * v;
+        const float rms = (float) std::sqrt (e / juce::jmax ((size_t) 1, tail.size()));
+        CHECK (rms > 0.004f,
+               "preset \"" << names[i] << "\" is silent at note " << note
+               << " (rms " << rms << ")");
+    }
+}
+
 static void testFactoryPresets()
 {
     DidgeAudioProcessor p;
@@ -268,6 +310,7 @@ int main()
     testAllParametersRoundTrip();
     testPresetNamePersists();
     testParameterOrderIsStable();
+    testFactoryPresetsPlayInTune();
     testFactoryPresets();
     testDirtyTracking();
     testBusLayouts();
