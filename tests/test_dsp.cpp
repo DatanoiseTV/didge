@@ -642,6 +642,44 @@ static void testBoreProfiles()
 // keyboard asked for -- each carries its own measured starting offset, since
 // the learner only corrects after a note has been held.
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Every bore profile must play in tune on the FIRST note, before the learner
+// has heard anything. The linearised solver places the bore for threshold
+// oscillation, but the nonlinear sounding pitch sits tens to over a hundred
+// cents sharp of that for the brass profiles -- a trumpet a whole tone sharp --
+// so a measured per-profile calibration corrects it feed-forward. This pins
+// that calibration: without it the brass profiles are unplayable out of the box.
+// Tested with lips over each profile's practical low-to-mid register (the very
+// top of the range is genuinely out of reach for the low instruments, as it is
+// on the real ones, so it is not asserted here).
+// ---------------------------------------------------------------------------
+static void testProfileTuning()
+{
+    for (int prof = 0; prof < 12; ++prof)
+    {
+        for (int note : { 31, 38, 45, 52 })
+        {
+            EngineParams p;
+            p.shape.profile = prof;
+            p.pressure = 0.62f;
+            p.humanize = 0.0f;
+            DidgeEngine e;
+            e.prepare (kFs, 256);
+            const auto m = hold (e, p, note, 3.0f);
+            const float rms = rmsOf (m, 2.0f, 3.0f);
+            if (rms < 0.003f)
+                continue;   // profile does not speak here; covered elsewhere
+            const float want = noteHz (note);
+            const float f0 = estimateF0 (m, want, 2.0f, 3.0f);
+            const float cents = 1200.0f * std::log2 (f0 / want);
+            CHECK (std::abs (cents) < 30.0f,
+                   "profile %d first-note pitch %.0f cents off at note %d "
+                   "(%.2f Hz for %.2f Hz) -- per-profile calibration regressed",
+                   prof, cents, note, f0, want);
+        }
+    }
+}
+
 static void testExciterTypes()
 {
     for (int ex = 0; ex < 4; ++ex)
@@ -1074,6 +1112,7 @@ int main()
     testHumanize();
     testReleaseToSilence();
     testBoreProfiles();
+    testProfileTuning();
     testExciterTypes();
     testReedBeatsShut();
     testBoreDiameter();

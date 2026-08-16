@@ -427,7 +427,18 @@ void DidgeEngine::retune (const EngineParams& p, bool force)
     }
 
     const auto& spec = exciterSpec (static_cast<Exciter> (p.exciter));
-    bore.tuneForPlayed (target * trimNow, buildLipLoad (p),
+
+    // Per-profile pitch calibration, lips only. The brass profiles play tens to
+    // over a hundred cents sharp of what the threshold solver predicts, the same
+    // on the first note before the learner has heard anything; the correction is
+    // measured per profile and fed forward here so the bore is aimed low by that
+    // much and the note comes out in tune. Reeds are excluded: their plant is
+    // non-monotonic on a conical bore and a feed-forward offset cannot fix it.
+    float profCorr = 1.0f;
+    if (static_cast<Exciter> (p.exciter) == Exciter::lips)
+        profCorr = std::pow (2.0f, -profilePitchCents (p.shape.profile, droneNote) / 1200.0f);
+
+    bore.tuneForPlayed (target * trimNow * profCorr, buildLipLoad (p),
                         spec.ratio > 0.0f ? spec.ratio : kNominalLipRatio,
                         spec.absHz);
 

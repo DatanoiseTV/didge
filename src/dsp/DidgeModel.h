@@ -123,6 +123,51 @@ inline BoreGeometry boreGeometryFor (BoreProfile p, float flare)
     }
 }
 
+// Per-profile pitch calibration, for lips.
+//
+// The linearised solver places the bore so its threshold oscillation lands on
+// the note; but a note is played far past threshold, and how far the nonlinear
+// sounding pitch sits from the threshold prediction depends on the bore shape.
+// For the natural bore it is a few cents and the frequency-band learner mops it
+// up. For the brass profiles it is tens to over a hundred cents, and the same
+// on the first note before the learner has heard anything -- a trumpet an
+// unplayable whole-tone sharp. Measured: with the tune control the sounding
+// pitch tracks one-for-one (gain ~0.95, perfectly monotonic), so the whole
+// error is a constant per-profile offset with a gentle slope across the range,
+// not a broken plant. So it is corrected feed-forward here, measured at two
+// reference notes (MIDI 34 and 54) and interpolated, which lands every brass
+// first-note within ~15 cents; the learner takes it from there.
+//
+// Reeds are not covered: a single reed on a conical bore and any double reed
+// jump registers (a non-monotonic plant), which a feed-forward offset cannot
+// fix and which is tracked separately. The natural bore is left at zero so its
+// existing prior and learner are untouched.
+struct ProfilePitchCal { float loCents, hiCents; };   // measured at note 34, 54
+
+inline float profilePitchCents (int profile, int midiNote)
+{
+    // Sharpness (cents) of each profile's first note, lips, default knobs.
+    static const ProfilePitchCal cal[] = {
+        {    0.0f,    0.0f },   // natural
+        {  102.4f,   75.5f },   // cylinder
+        {  -14.0f,   -5.4f },   // cone
+        {  -15.4f,  -11.5f },   // flared
+        {   78.2f,   53.8f },   // horn
+        {  148.0f,   91.8f },   // trumpet
+        {  131.5f,   66.7f },   // trombone
+        {  115.5f,   88.5f },   // flugelhorn
+        {  268.2f,  213.5f },   // frenchHorn
+        {  -47.9f,   18.9f },   // tuba
+        {  -53.1f,   -3.9f },   // alphorn
+        {   -3.3f,   -6.3f },   // contrabass
+    };
+    const int n = static_cast<int> (sizeof (cal) / sizeof (cal[0]));
+    const auto& c = cal[profile >= 0 && profile < n ? profile : 0];
+    const float t = (static_cast<float> (midiNote) - 34.0f) / (54.0f - 34.0f);
+    const float tc = std::max (-0.5f, std::min (1.5f, t));   // mild extrapolation
+    return c.loCents + (c.hiCents - c.loCents) * tc;
+}
+
 // Wall material. Real wall losses grow with frequency (the viscous and thermal
 // boundary layer scales with the square root of it) and rough, porous surfaces
 // lose more than smooth hard ones. So the material sets both a broadband loss
