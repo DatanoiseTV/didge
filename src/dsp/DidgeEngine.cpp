@@ -18,7 +18,11 @@ namespace didge
 namespace
 {
     constexpr float kMaxLungPressure = 4000.0f;   // Pa at pressure = 1
-    constexpr float kOutputScale     = 1.0f / 3000.0f;
+    // The second-order bell reflects more and radiates a smaller, brighter
+    // fraction of the internal energy (see DidgeModel bell), which drops the
+    // radiated level about five decibels across the board. Compensated here so
+    // the plugin's output stays where presets expect it.
+    constexpr float kOutputScale     = 1.0f / 1750.0f;
 
     // Nominal embouchure: lip resonance as a fraction of the sounding pitch.
     // The bore is calibrated at this value, so the player's tension control

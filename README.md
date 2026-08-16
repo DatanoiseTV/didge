@@ -128,6 +128,18 @@ Adding it moved the trombone's spectral centroid from 123 Hz to 553 Hz and the
 flugelhorn's from 158 Hz to 457 Hz, with harmonics standing above the
 fundamental rather than falling away from it.
 
+The bell at the far end is a horn, and a horn has a cutoff frequency: below it
+a wave meets the flare and reflects back down the bore, above it the wave
+escapes and radiates. That cutoff is set by how fast the bell flares, not by its
+width alone -- which is why a trumpet, whose bell opens sharply, is brilliant
+where a tuba's slow-flaring bell of the same mouth radius is dark. The bell's
+reflectance is modelled second order and its sharpness scales with the flare, so
+a brass bell snaps shut below its cutoff and builds the strong high partials
+that, radiated, become the brass formant, while a didgeridoo's nearly flareless
+end reflects gently and radiates freely. Measured, this lifted the trumpet's
+spectral centroid from about 630 Hz to just over 1000 Hz, into the range of a
+real trumpet, and left the didgeridoo's open, travelling sound intact.
+
 Measured on a held D2, the trumpet's spectral centroid is around 670 Hz against
 the natural bore's 195 Hz, and the cylinder's second harmonic sits 12 dB under
 its fundamental where the natural bore's sits 7 dB above. Profiles carry a

@@ -149,17 +149,17 @@ inline float profilePitchCents (int profile, int midiNote)
     // Sharpness (cents) of each profile's first note, lips, default knobs.
     static const ProfilePitchCal cal[] = {
         {    0.0f,    0.0f },   // natural
-        {  102.4f,   75.5f },   // cylinder
-        {  -14.0f,   -5.4f },   // cone
-        {  -15.4f,  -11.5f },   // flared
-        {   78.2f,   53.8f },   // horn
-        {  148.0f,   91.8f },   // trumpet
-        {  131.5f,   66.7f },   // trombone
-        {  115.5f,   88.5f },   // flugelhorn
-        {  268.2f,  213.5f },   // frenchHorn
-        {  -47.9f,   18.9f },   // tuba
-        {  -53.1f,   -3.9f },   // alphorn
-        {   -3.3f,   -6.3f },   // contrabass
+        {  106.0f,   80.3f },   // cylinder
+        {  -13.3f,  -11.0f },   // cone
+        {  -14.9f,   -8.9f },   // flared
+        {   82.4f,   65.3f },   // horn
+        {  147.0f,   93.8f },   // trumpet
+        {  129.9f,   72.3f },   // trombone
+        {  116.2f,   91.3f },   // flugelhorn
+        {  273.7f,  223.6f },   // frenchHorn
+        {  -45.1f,   14.9f },   // tuba
+        {  -53.6f,  -16.8f },   // alphorn
+        {   -3.8f,   -4.6f },   // contrabass
     };
     const int n = static_cast<int> (sizeof (cal) / sizeof (cal[0]));
     const auto& c = cal[profile >= 0 && profile < n ? profile : 0];
@@ -477,6 +477,7 @@ public:
         }
         uMean = 0.0f;
         bellLpState = 0.0f;
+        bellLpState2 = 0.0f;
     }
 
     // Recompute radii, scattering targets and losses for a shape. Cheap; call
@@ -580,9 +581,37 @@ public:
         const float hfDb = matHfDb[mi] * (1.0f + 1.4f * s.wallDamp) * lossScale;
         wallLp = solveWallPole (hfDb);
 
-        // Open-end reflection turns into radiation around ka ~ 1.
-        const float fc = kSpeedOfSound / (6.2831853f * rBell) * 0.85f;
-        bellLpCoeff = 1.0f - std::exp (-6.2831853f * fc / fs);
+        // Bell radiation / reflection cutoff.
+        //
+        // A brass bell is a horn, and a horn has a cutoff frequency: below it a
+        // wave meets the flare, turns and reflects back down the bore; above it
+        // the wave escapes and radiates. That cutoff is not set by the bell's
+        // width alone but by how fast it flares -- Benade's horn cutoff rises
+        // with the flare rate -- which is why a trumpet, whose bell opens
+        // sharply, is bright while a tuba's slow-flaring bell of the same mouth
+        // radius is dark. So the cutoff carries a flare term: geo.flarePow runs
+        // from 1 for a straight cone to 4 for the trumpet.
+        const float flareRate = geo.cup ? geo.flarePow : std::max (1.0f, geo.flarePow);
+        const float fc = kSpeedOfSound / (6.2831853f * rBell) * 0.85f
+                       * (0.55f + 0.40f * flareRate);
+
+        // How SHARP the reflectance is depends on the flare, and this is the
+        // whole difference between a brass bell and an open tube. A trumpet's
+        // bell flares hard: it is a horn, its reflectance holds near total below
+        // the cutoff and falls steeply above -- over well under an octave -- and
+        // that sharp edge is what builds the strong high partials that, radiated,
+        // become the brass formant. A didgeridoo has almost no bell; its open end
+        // reflects gently, like a plain pipe, and radiates freely, so its wave
+        // travels out rather than standing hard. A single reflectance order
+        // cannot be both. So the reflection blends between one pole (gentle, open
+        // pipe) and two (sharp, horn) with the flare rate: cones and rough tubes
+        // stay open, the brass bells snap shut below their cutoff.
+        bellSharp = std::max (0.0f, std::min (1.0f, (flareRate - 2.0f) / 2.0f));
+
+        // Per-pole corner raised so the two-pole cascade's own -3 dB still lands
+        // on the geometric cutoff.
+        const float fcPole = fc / 0.644f;
+        bellLpCoeff = 1.0f - std::exp (-6.2831853f * fcPole / fs);
     }
 
     // Set the acoustic length so the model's first *impedance peak* lands on
@@ -865,11 +894,14 @@ public:
             fIn[i + 1] = (1.0f + k) * f1 - k * b2;          // into segment i+1, rightward
         }
 
-        // Bell: reflection is an inverted lowpass; what is not reflected
-        // radiates. pRad = incident + reflected = complementary highpass.
+        // Bell: reflection is an inverted second-order lowpass (two cascaded
+        // poles); what is not reflected radiates. pRad = incident + reflected =
+        // the complementary highpass, now with the sharper skirt of a real bell.
         const float incident = fOut[kSegments - 1];
-        bellLpState += bellLpCoeff * (incident - bellLpState) + 1.0e-18f;
-        const float reflected = -0.995f * bellLpState;
+        bellLpState  += bellLpCoeff * (incident - bellLpState)  + 1.0e-18f;
+        bellLpState2 += bellLpCoeff * (bellLpState - bellLpState2) + 1.0e-18f;
+        const float bellOut = bellLpState + bellSharp * (bellLpState2 - bellLpState);
+        const float reflected = -0.995f * bellOut;
         bIn[kSegments - 1] = reflected;
 
         // Standing-wave envelopes, before the writes overwrite the scratch.
@@ -997,10 +1029,12 @@ private:
             return d * d;
         };
 
-        // Bell reflection: -0.995 * onepole lowpass.
+        // Bell reflection: -0.995 * a second-order (two-pole) lowpass, matching
+        // the running model in finishStep so the tuner describes the loop that
+        // actually sounds.
         const cf z1 = std::polar (1.0f, -w);
         const cf lp = bellLpCoeff / (1.0f - (1.0f - bellLpCoeff) * z1);
-        cf G = -0.995f * lp;
+        cf G = -0.995f * (lp + bellSharp * (lp * lp - lp));
 
         G *= Dof (kSegments - 1);                   // through last segment
         for (int i = kSegments - 2; i >= 0; --i)
@@ -1093,7 +1127,7 @@ private:
 
     float segLen = 8.0f, segLenTarget = 8.0f, lengthScale = 1.0f;
     float gSeg = 0.999f;
-    float bellLpCoeff = 0.1f, bellLpState = 0.0f;
+    float bellLpCoeff = 0.1f, bellLpState = 0.0f, bellLpState2 = 0.0f, bellSharp = 0.0f;
     float lenSmooth = 0.01f, juncSmooth = 0.01f;
 
     float tunedF0 = 73.4f, tootF = 190.0f, f0Requested = 73.4f;
