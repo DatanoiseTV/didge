@@ -269,6 +269,7 @@ private:
     // Human inconsistency: fixed offsets drawn per note, plus two slow
     // wandering signals that never settle while a note is held.
     float humPressure = 0.0f, humTension = 0.0f, humAttack = 0.0f;
+    float attackKick = 0.0f;   // note-on oscillation seed
     float driftA = 0.0f, driftB = 0.0f;
     std::uint32_t humRng = 0x2545f491u;
     float nextHumanRandom();

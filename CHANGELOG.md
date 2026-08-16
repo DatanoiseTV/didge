@@ -52,6 +52,13 @@ All notable changes to Didge are documented here. The format follows
   amplitudes, so the cutaway reconstructs the real travelling wave instead of
   pulsing an amplitude envelope in step. The air parcels oscillate about fixed
   positions and let their spacing show compression, which is what air does.
+- Prompt note attack. A wind note no longer grows out of the breath noise over
+  a third of a second the way a threshold instability does; the exciter is
+  seeded at note-on -- the lips and reeds take a velocity kick, the jet a primed
+  transit -- and the breath over-blows the first ninety milliseconds, the way a
+  player tongues a note into speech. Measured onset to full amplitude dropped
+  from 200-950 ms to 10-150 ms across the instruments, with no click, which is
+  most of what makes a played note feel alive rather than sluggish.
 - Optional decay stage: with it switched on the breath falls away under a
   held note, turning the model into a struck exciter rather than a drone.
 - Velocity routing to breath, breath plus attack, embouchure or brightness --

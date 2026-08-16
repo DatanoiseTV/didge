@@ -274,6 +274,7 @@ void DidgeEngine::reset()
     gate = false;
     pressureEnv = 0.0f;
     transientEnv = 0.0f;
+    attackKick = 0.0f;
     inDecay = false;
     vibPhase = growlPhase = 0.0f;
     bpZ1 = bpZ2 = breathLp = 0.0f;
@@ -330,6 +331,14 @@ void DidgeEngine::handleEvent (const NoteEvent& e)
                 noteVelocity = e.velocity;
                 transientEnv = 0.4f + 0.6f * e.velocity;   // tongued attack chiff
                 inDecay = false;                           // retrigger the envelope
+                // Seed the oscillation. A wind note does not grow out of the
+                // breath noise over half a second the way a threshold
+                // instability does -- the player tongues, and the release drives
+                // the reed or the lips into motion at once. Kicking the valve at
+                // note-on gives the oscillation a running start so the note
+                // speaks in tens of milliseconds, not hundreds, which is most of
+                // what makes a played note feel alive rather than synthetic.
+                attackKick = 18.0f + 34.0f * e.velocity;
             }
             // Fresh inconsistencies for this note. No two notes from a player
             // start with quite the same breath, embouchure or tonguing.
@@ -521,6 +530,16 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     lips.setDamping (damping (dampNow, spec));
     lips.setRestOpening (spec.restBias + spec.restScale * embNow);
 
+    // Apply the note-on seed once, now that the exciter is configured. The jet
+    // has no valve to kick, so it is seeded by priming its transit delay with a
+    // small pulse; the lips and reeds take a velocity impulse.
+    if (attackKick > 0.0f)
+    {
+        if (spec.jet) jet.seed (attackKick);
+        else          lips.kickVelocity (attackKick);
+        attackKick = 0.0f;
+    }
+
     // Humanising. Two parts: an offset drawn once per note, so repeats are
     // never identical, and a slow wander that keeps moving under a held note,
     // because a player's breath and embouchure never truly hold still. Both
@@ -616,7 +635,7 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     const float envAtk   = 1.0f - std::exp (-1.0f / (std::max (1.0f, attackMs)   * 0.001f * fs));
     const float envRel   = 1.0f - std::exp (-1.0f / (std::max (5.0f, p.releaseMs) * 0.001f * fs));
     const float envDec   = 1.0f - std::exp (-1.0f / (std::max (10.0f, p.decayMs)  * 0.001f * fs));
-    const float trDecay  = std::exp (-1.0f / (0.060f * fs));
+    const float trDecay  = std::exp (-1.0f / (0.090f * fs));
     const float vibInc   = p.vibRate / fs;
 
     const float growlF   = droneTargetHz * std::pow (2.0f, p.growlSemis / 12.0f);
@@ -703,7 +722,13 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         if (vibPhase >= 1.0f) vibPhase -= 1.0f;
         const float vib = 1.0f + p.vibDepth * 0.30f * std::sin (6.2831853f * vibPhase);
 
-        float pLung = pressureEnv * vib * (1.0f + 0.55f * transientEnv);
+        // The attack overshoot: the breath drives well above the steady target
+        // for the first ~90 ms, which pushes the exciter far enough past
+        // threshold that the oscillation grows in tens of milliseconds instead
+        // of hundreds. A real player over-blows the start of a note for exactly
+        // this reason; without it a brass note takes a third of a second to
+        // find its amplitude and sounds sluggish under the fingers.
+        float pLung = pressureEnv * vib * (1.0f + 1.3f * transientEnv);
 
         // --- vocalization: glottal pulses modulate the lung flow -------------
         if (p.growl > 0.001f)

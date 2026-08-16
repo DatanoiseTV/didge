@@ -1519,6 +1519,14 @@ public:
     }
     void reset() { jet.clear(); yJet = 0.0f; }
 
+    // Prime the jet at note-on: a short pulse into the transit delay so the
+    // feedback loop starts from a real deflection instead of from silence.
+    void seed (float amp)
+    {
+        yJet = 0.0f;
+        for (int i = 0; i < 8; ++i) jet.write (amp * 1.0e-3f);
+    }
+
     // The jet transit time, as a fraction of the sounding period. ~1/3 of a
     // period is the classic value that selects the fundamental; a shorter
     // transit (harder, faster jet) favours the octave, which is how a flute
