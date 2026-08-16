@@ -380,7 +380,7 @@ inline const ExciterSpec& exciterSpec (Exciter e)
 
         // Air jet, flute/recorder/panpipe. No valve at all: see JetDrive.
         {  0.0f, 0.0f, 0.0f, 0.0f, 1.0f,
-           1.0e-3f,  0.0f,      0.0f, 0.0f, true,  0.55f,  3.0f,  0.0f, false, 0.70f },
+           1.0e-3f,  0.0f,      0.0f, 0.0f, true,  0.55f, 11.0f,  0.0f, false, 0.70f },
     };
     const int i = static_cast<int> (e);
     return table[i >= 0 && i < kNumExciters ? i : 0];
@@ -1449,6 +1449,101 @@ private:
     float k = kLipStiffness, r = 0.0f, zeta_ = 0.125f;
     float yEq = 5.0e-4f;
     float sign = +1.0f, aVal = kLipArea, wVal = kLipWidth, fRes = 70.0f;
+};
+
+// ---------------------------------------------------------------------------
+// Air-jet drive (flute / recorder / panpipe family).
+//
+// A flute has no valve. A ribbon of air blown across a sharp edge is deflected
+// sideways by the acoustic velocity in the pipe mouth, and because the jet
+// takes a finite time to cross the gap, that deflection arrives back at the
+// edge delayed -- the delay is the phase shift that closes the feedback loop
+// and sustains the oscillation. The jet then feeds more or less of its flow to
+// one side of the edge, a saturating nonlinear function of how far it has been
+// pushed. This is the McIntyre-Schumacher-Woodhouse jet drive (JASA 74, 1325,
+// 1983), the same lumped model used in Cook's STK flute.
+//
+// The nonlinearity is the odd cubic q(x) = x - x^3 near the origin: small
+// deflections feed proportionally, large ones saturate and fold back. It is
+// odd, so like a cane reed it favours the odd harmonics of a stopped pipe,
+// which is what this bore is -- closed at the mouth, open at the bell. The
+// result is a recorder/panpipe voice, breathy and hollow, not a valve buzz.
+//
+// The jet transit delay sets which register speaks: about a third of the
+// sounding period puts the loop phase on the fundamental. It is derived from
+// the note, so the flute tracks the keyboard through the same bore the reeds
+// and lips use.
+// ---------------------------------------------------------------------------
+class JetDrive
+{
+public:
+    void prepare (double sampleRate)
+    {
+        fs = static_cast<float> (sampleRate);
+        jet.prepare (static_cast<int> (fs / 20.0f) + 8);   // down to ~20 Hz
+        reset();
+    }
+    void reset() { jet.clear(); yJet = 0.0f; }
+
+    // The jet transit time, as a fraction of the sounding period. ~1/3 of a
+    // period is the classic value that selects the fundamental; a shorter
+    // transit (harder, faster jet) favours the octave, which is how a flute
+    // overblows.
+    void setFrequency (float hz, float transitFraction)
+    {
+        const float period = fs / std::max (20.0f, hz);
+        tau = std::max (2.0f, std::min (jet.maxDelay(), period * transitFraction));
+    }
+    void setDrive (float gain) { jetGain = std::max (0.05f, gain); }
+
+    struct Result { float flow; float deltaP; };
+
+    // acPressure: the acoustic pressure returning from the bore mouth (the AC
+    // field that deflects the jet -- NOT the steady breath, which only sets how
+    // much flow the jet carries). zSum: series mouth+bore impedance. breath: the
+    // steady blowing pressure (Pa), which scales the jet velocity and hence both
+    // the flow and how hard the nonlinearity is driven.
+    Result step (float acPressure, float zSum, float breath)
+    {
+        // Only the oscillating field deflects the jet, and it arrives back at
+        // the edge one transit later. Feeding the steady breath in here is what
+        // let the loop run off at its own delay frequency instead of the bore's;
+        // the breath belongs in the flow magnitude, below, not in the phase.
+        jet.write (acPressure);
+        const float deflected = jet.read (tau);
+
+        // The jet has inertia: it follows the deflection through a light lowpass
+        // rather than tracking it instantly.
+        yJet += 0.5f * (deflected - yJet);
+
+        // How hard the nonlinearity is driven scales with the jet velocity,
+        // which scales with sqrt(breath) (Bernoulli). A stronger blow both
+        // brightens the tone and, past a point, overblows -- real flute
+        // behaviour, and here it stays bounded because q folds back.
+        const float uj = std::sqrt (std::max (0.0f, breath) / kBreathRef);
+        const float x = std::max (-4.0f, std::min (4.0f, yJet * jetScale * uj));
+        const float q = x - (x * x * x) * (1.0f / 3.0f);   // odd, folds at |x|~1
+
+        // Flow into the bore: the jet's mean throughput (set by breath) times
+        // the nonlinear selection q, damped by the series impedance it works
+        // against.
+        const float g = 1.0f / (1.0f + zSum * kJetAdmit);
+        float flow = kJetFlow * jetGain * std::max (0.0f, breath) * q * g;
+        flow = std::max (-3.0e-3f, std::min (3.0e-3f, flow));
+        return { flow, q };
+    }
+
+    float excursion() const { return yJet; }
+
+private:
+    static constexpr float jetScale  = 9.0e-4f;   // acoustic pressure -> jet offset
+    static constexpr float kJetFlow  = 6.0e-7f;   // jet flow scale
+    static constexpr float kJetAdmit = 2.0e-6f;   // series-impedance loading
+    static constexpr float kBreathRef = 2000.0f;  // breath giving unit jet velocity
+
+    FracDelay jet;
+    float fs = 48000.0f;
+    float tau = 40.0f, yJet = 0.0f, jetGain = 1.0f;
 };
 
 } // namespace didge

@@ -653,6 +653,47 @@ static void testBoreProfiles()
 // top of the range is genuinely out of reach for the low instruments, as it is
 // on the real ones, so it is not asserted here).
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// The air jet (flute / panpipe). It has no valve -- a ribbon of air across the
+// mouth edge, deflected by the pipe's own acoustic field a transit-time later.
+// It must speak, hold the bore's pitch rather than running off at its own delay
+// frequency (an earlier cut did exactly that), and give the odd-harmonic
+// spectrum of a stopped pipe, which is what this closed-mouth bore is.
+// ---------------------------------------------------------------------------
+static void testAirJet()
+{
+    const int jetExciter = 4;   // Exciter::airJet
+    for (int note : { 38, 45, 50, 55 })
+    {
+        EngineParams p;
+        p.exciter = jetExciter;
+        p.shape.profile = 1;      // cylinder -> recorder / panpipe
+        p.pressure = 0.6f;
+        p.humanize = 0.0f;
+        DidgeEngine e;
+        e.prepare (kFs, 256);
+        const auto m = hold (e, p, note, 3.0f);
+        const float rms = rmsOf (m, 2.0f, 3.0f);
+        CHECK (rms > 0.01f, "air jet did not speak at note %d: rms %.4f", note, rms);
+
+        const float want = noteHz (note);
+        const float f0 = estimateF0 (m, want, 2.0f, 3.0f);
+        const float cents = 1200.0f * std::log2 (f0 / want);
+        CHECK (std::abs (cents) < 35.0f,
+               "air jet off pitch at note %d: %.0f cents (%.2f Hz for %.2f Hz) -- "
+               "the jet ran off at its own delay frequency instead of the bore's",
+               note, cents, f0, want);
+
+        // Stopped pipe: odd harmonics dominate the even ones.
+        const float h1 = std::pow (10.0f, goertzelDb (m, f0,        2.0f, 3.0f) / 20.0f);
+        const float h2 = std::pow (10.0f, goertzelDb (m, f0 * 2.0f, 2.0f, 3.0f) / 20.0f);
+        const float h3 = std::pow (10.0f, goertzelDb (m, f0 * 3.0f, 2.0f, 3.0f) / 20.0f);
+        CHECK (h3 > h2 || h1 > 4.0f * h2,
+               "air jet at note %d is not odd-harmonic (h1 %.4f h2 %.4f h3 %.4f)",
+               note, h1, h2, h3);
+    }
+}
+
 static void testProfileTuning()
 {
     for (int prof = 0; prof < 12; ++prof)
@@ -1112,6 +1153,7 @@ int main()
     testHumanize();
     testReleaseToSilence();
     testBoreProfiles();
+    testAirJet();
     testProfileTuning();
     testExciterTypes();
     testReedBeatsShut();

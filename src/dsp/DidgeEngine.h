@@ -252,6 +252,7 @@ private:
     Bore bore;
     VocalTract tract;
     LipValve lips;
+    JetDrive jet;
     Ambience ambience;
     Spectrum spectrum;
     PitchTrim pitchTrim;

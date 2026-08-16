@@ -92,6 +92,10 @@ namespace
         return s.sign > 0.0f ? std::min (kMaxLipZeta, z) : std::min (2.0f, z);
     }
 
+    // The air jet plays about this many cents flat of the bore resonance,
+    // measured; the bore and the jet transit are aimed high by it together.
+    constexpr float kJetPitchCents = 18.0f;
+
     inline float noteToHz (float note)
     {
         return 440.0f * std::pow (2.0f, (note - 69.0f) / 12.0f);
@@ -240,6 +244,7 @@ void DidgeEngine::prepare (double sampleRate, int)
     bore.setSmoothing (sampleRate);
     tract.prepare (sampleRate);
     lips.prepare (sampleRate);
+    jet.prepare (sampleRate);
     ambience.prepare (sampleRate);
     spectrum.prepare (sampleRate);
     pitchTrim.prepare (sampleRate);
@@ -257,6 +262,7 @@ void DidgeEngine::reset()
     bore.clear();
     tract.clear();
     lips.reset();
+    jet.reset();
     ambience.clear();
     spectrum.reset();
     numHeld = 0;
@@ -437,6 +443,13 @@ void DidgeEngine::retune (const EngineParams& p, bool force)
     float profCorr = 1.0f;
     if (static_cast<Exciter> (p.exciter) == Exciter::lips)
         profCorr = std::pow (2.0f, -profilePitchCents (p.shape.profile, droneNote) / 1200.0f);
+    else if (spec.jet)
+        // The jet transit adds loop phase that pulls the sounding pitch about
+        // eighteen cents flat of the bore resonance, consistently across the
+        // range. Aim both the bore and the jet delay high by that much so the
+        // note lands right; the correction has to move them together, since the
+        // pitch is set by the two in series (see process()).
+        profCorr = std::pow (2.0f, kJetPitchCents / 1200.0f);
 
     bore.tuneForPlayed (target * trimNow * profCorr, buildLipLoad (p),
                         spec.ratio > 0.0f ? spec.ratio : kNominalLipRatio,
@@ -525,6 +538,10 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
     float lipBase = spec.absHz > 0.0f
                   ? spec.absHz
                   : droneTargetHz * (spec.ratio > 0.0f ? spec.ratio : kNominalLipRatio);
+    // The jet transit must be lifted by the same amount as the bore (retune),
+    // or the two disagree and the correction is lost.
+    if (spec.jet)
+        lipBase *= std::pow (2.0f, kJetPitchCents / 1200.0f);
     // A reed-led exciter has to see the same trimmed target the bore was built
     // around. Otherwise the solver places the bore for a reed at one frequency
     // while the running reed sits at another, the two disagree, and the trim
@@ -705,6 +722,12 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         // --- lip tension glide ----------------------------------------------
         lipFreqSm += (lipFreqTarget - lipFreqSm) * lipGlide;
         lips.setResonance (lipFreqSm);
+        // The jet transit tracks the sounding note. A shorter transit (a
+        // harder, faster jet) selects the octave, so overblowing to the toot
+        // register shortens it -- the flute's own way of jumping the octave.
+        if (spec.jet)
+            jet.setFrequency (lipFreqSm / (spec.ratio > 0.0f ? spec.ratio : 1.0f),
+                              tootActive ? 0.18f : 0.36f);
 
         // --- coupled tract | lips | bore ------------------------------------
         const float pMinus = bore.beginStep();
@@ -770,16 +793,35 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
 
         const float drive = lungNow + tractTerm - 2.0f * pMinus + turbPressure;
 
-        const auto lip = lips.step (drive, zMouth + zBore);
+        // The exciter: a valve (lips or a cane/free reed) or the air jet. The
+        // jet is not a valve -- it has no opening and no pressure threshold --
+        // so it runs on its own path, driven by the same net pressure but
+        // producing flow through the delayed-jet nonlinearity instead of a
+        // Bernoulli slit. Both hand back a flow to inject and a scalar the
+        // noise gate and visualiser read as the "opening".
+        float u, exciterDrop, exciterOpen;
+        if (spec.jet)
+        {
+            // The jet is deflected by the acoustic field only; the steady breath
+            // (lungNow) sets its flow magnitude, not its phase.
+            const float acField = tractTerm - 2.0f * pMinus + turbPressure;
+            const auto jr = jet.step (acField, zMouth + zBore, lungNow);
+            u = jr.flow;
+            exciterDrop = std::min (std::abs (drive), 3.0f * kMaxLungPressure);
+            exciterOpen = std::abs (jet.excursion()) > 1.0e-4f ? 1.0f : 0.0f;
+        }
+        else
+        {
+            const auto lip = lips.step (drive, zMouth + zBore);
+            u = lip.flow;
+            exciterDrop = std::abs (lip.deltaP);
+            exciterOpen = lips.opening() > 0.0f ? 1.0f : 0.0f;
+        }
 
         // Remembered for the next sample's noise source (the drop is only
-        // known once the valve has been solved).
-        lipDrop = std::min (std::abs (lip.deltaP), 3.0f * kMaxLungPressure);
-        lipOpenGate = lips.opening() > 0.0f ? 1.0f : 0.0f;
-
-        // The flow the lips pass launches a forward wave into the bore and an
-        // equal and opposite reaction back up the tract.
-        const float u = lip.flow;
+        // known once the exciter has been solved).
+        lipDrop = std::min (exciterDrop, 3.0f * kMaxLungPressure);
+        lipOpenGate = exciterOpen;
         if (analyse)
         {
             const float nc = demC * demCw - demS * demSw;
@@ -799,7 +841,7 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
 
         const float radiated = bore.finishStep (pMinus + zBore * u);
 
-        tract.finishStep (0.0f, fTract - zMouth * lip.flow);
+        tract.finishStep (0.0f, fTract - zMouth * u);
 
         const float lipOpen = lips.opening();
         pitchTrim.observe (lipOpen, droneTargetHz,
@@ -838,7 +880,7 @@ void DidgeEngine::process (float* outL, float* outR, int numSamples,
         pkL = std::max (pkL, std::abs (l));
         pkR = std::max (pkR, std::abs (r));
         lipOpenAcc += lipOpen;
-        flowAcc += std::abs (lip.flow);
+        flowAcc += std::abs (u);
     }
 
     ambience.setSize (p.spaceSize);
